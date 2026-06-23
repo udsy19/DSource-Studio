@@ -70,6 +70,22 @@ def test_many_products_share_one_manufacturer(db):
     assert result.created == 30
 
 
+def test_same_sku_twice_in_one_batch_keeps_first(db):
+    # Ugaoo lists size variants as separate products under one SKU — must not violate UNIQUE.
+    payload = {"products": [
+        {"title": "Plant - Large", "handle": "plant-l", "product_type": "Plant", "vendor": "Ugaoo",
+         "tags": [], "images": [{"src": "https://cdn/p1.jpg"}],
+         "variants": [{"sku": "NUPL0497", "price": "999", "available": True}]},
+        {"title": "Plant - Small", "handle": "plant-s", "product_type": "Plant", "vendor": "Ugaoo",
+         "tags": [], "images": [{"src": "https://cdn/p2.jpg"}],
+         "variants": [{"sku": "NUPL0497", "price": "699", "available": True}]},
+    ]}
+    products = parse_products_json(payload, "UG", base_url="https://shop.test")
+    result = upsert_harvest(db, products)
+    assert result.created == 1 and result.duplicates == 1
+    assert db.query(Product).filter_by(sku="NUPL0497").count() == 1
+
+
 def test_reharvest_updates_not_duplicates(db):
     products = parse_products_json(PAYLOAD, "NK", base_url="https://shop.test")
     upsert_harvest(db, products)

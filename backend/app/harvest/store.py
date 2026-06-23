@@ -17,7 +17,8 @@ from .schema import NormalizedProduct
 class HarvestStoreResult:
     created: int
     updated: int
-    no_price: int  # rows with no real INR price (B2B/quote-only) — flagged, never faked
+    no_price: int      # rows with no real INR price (B2B/quote-only) — flagged, never faked
+    duplicates: int    # same (mfr, sku) seen twice in one batch (e.g. size variants) — first wins
 
 
 def _provenance(mp: NormalizedProduct) -> dict:
@@ -38,11 +39,17 @@ def _provenance(mp: NormalizedProduct) -> dict:
 def upsert_harvest(
     db: Session, products: list[NormalizedProduct], source: str = "harvest"
 ) -> HarvestStoreResult:
-    created = updated = no_price = 0
+    created = updated = no_price = duplicates = 0
+    seen: set[tuple[str, str]] = set()
     for mp in products:
+        code = resolve_manufacturer(db, mp.manufacturer_code, mp.vendor)
+        key = (code, mp.sku)
+        if key in seen:
+            duplicates += 1  # same sku twice in this batch (size variants) — keep the first
+            continue
+        seen.add(key)
         if mp.price_inr is None:
             no_price += 1
-        code = resolve_manufacturer(db, mp.manufacturer_code, mp.vendor)
         row = (
             db.query(Product)
             .filter(Product.manufacturer_code == code, Product.sku == mp.sku)
@@ -62,4 +69,4 @@ def upsert_harvest(
             row.gst_rate, row.provenance = mp.gst_rate, _provenance(mp)
             updated += 1
     db.commit()
-    return HarvestStoreResult(created=created, updated=updated, no_price=no_price)
+    return HarvestStoreResult(created=created, updated=updated, no_price=no_price, duplicates=duplicates)
