@@ -123,3 +123,20 @@ export interface TestFitResponse {
   bom?: BomLine[];
   quote?: Quote;
 }
+
+export type MatchLabel = "exact" | "close" | "no_match";
+
+export interface MatchResult {
+  product_id: number;
+  sku: string;
+  name: string;
+  category: string;
+  vendor: string;
+  price_inr: number | null;
+  gst_rate: number | null;
+  image_url: string | null;
+  url: string | null;
+  score: number;
+  label: MatchLabel;
+  flagged_fields: string[];
+}

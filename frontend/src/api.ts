@@ -64,6 +64,19 @@ export async function cadSvg(file: File): Promise<{ svg: string }> {
   return res.json();
 }
 
+export async function matchProduct(
+  text: string,
+  k = 3,
+): Promise<import("./types").MatchResult[]> {
+  const res = await fetch("/api/match", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, k }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return (await res.json()).results ?? [];
+}
+
 export async function cadGeometry(file: File): Promise<import("./types").CadGeometry> {
   const fd = new FormData();
   fd.append("file", file);
