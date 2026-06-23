@@ -43,12 +43,19 @@ class MatchRequest(BaseModel):
     category: str | None = None
 
 
+def _bands(by_image: bool) -> MatchBands:
+    if by_image:
+        return MatchBands(settings.match_image_exact, settings.match_image_close)
+    return MatchBands(settings.match_text_exact, settings.match_text_close)
+
+
 @router.get("/status")
 def status() -> dict:
     return {
         "indexed": get_index().count(),
         "model": settings.embed_model,
-        "bands": {"exact": settings.match_exact, "close": settings.match_close},
+        "text_bands": {"exact": settings.match_text_exact, "close": settings.match_text_close},
+        "image_bands": {"exact": settings.match_image_exact, "close": settings.match_image_close},
     }
 
 
@@ -57,10 +64,10 @@ def match(req: MatchRequest, db: Session = Depends(get_db)) -> dict:
     if not req.text and not req.image:
         raise HTTPException(status_code=422, detail="Provide `text` or `image`.")
     embedder = get_embedder()
-    vector = embedder.embed_image(_decode_image(req.image)) if req.image else embedder.embed_text(req.text)
+    by_image = bool(req.image)
+    vector = embedder.embed_image(_decode_image(req.image)) if by_image else embedder.embed_text(req.text)
     hits = get_index().query(vector, k=req.k, category=req.category)
-    bands = MatchBands(settings.match_exact, settings.match_close)
-    return {"results": _results(db, hits, bands)}
+    return {"results": _results(db, hits, _bands(by_image))}
 
 
 def _results(db: Session, hits: list[tuple[int, float]], bands: MatchBands) -> list[dict]:

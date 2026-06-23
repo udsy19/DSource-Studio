@@ -35,13 +35,17 @@ _Last updated: 2026-06-22._
 - **Existing engine (from Studio):** CAD ingest (DXF/DWG + unit norm), faithful 2D+3D viewer, test-fit, wellbeing scoring, pricing connectors (~53% real), procurement RFQ/PO, Flux-Canny render proxy. 64 tests green. ~5,400 LoC Python, ~1,700 LoC TS.
 - **AI render:** just rewrote to a two-pass crisp line-art ControlNet capture for layout fidelity (`CadViewer.tsx` + `render.py` flux params). Awaiting in-app retest by user.
 - **Docs:** `CLAUDE.md`, `ROADMAP.md`, `memory.md` created.
-- **Phase 1 IN PROGRESS:**
-  - ✅ Step 1 (dep gate): torch 2.12.1 + open_clip 3.3.0 + transformers 5.12.1 + sqlite-vec 0.1.9 + curl_cffi 0.15.0 + apsw 3.53.2 install on Py3.13/arm64. marqo-ecommerce-B verified: image+text both 768-dim unit-norm; MPS available. **Key gotcha:** stdlib `sqlite3` on this macOS Python is built WITHOUT loadable extensions → `sqlite-vec` must attach via **apsw** (SqliteVecIndex will use apsw, pointed at the same `dsource.db`; SQLAlchemy keeps the stdlib driver for the ORM).
-  - ✅ Step 2 (Tier-0 Shopify harvest): `app/harvest/` (schema.py NormalizedProduct + derive_gst, client.py curl_cffi, shopify.py pure parse + fetch). Pure parser offline-tested incl. rifeindia price=0/null-sku regression. 71 tests green.
-  - ⏭ Next: persist NormalizedProduct → catalog (extend `Product` w/ image_url/price_inr/gst_rate/provenance), then embeddings module, match endpoint, calibration.
-- **Calibration plan (no labeled set):** self-label from the catalog — multi-image products give same-product positives; title→image gives text positives; within/cross-category give close/no-match. No hand-labeling needed.
-- **GST:** no canonical HSN table provided → `derive_gst(category)` (furniture 18% etc.), always flagged estimated.
-- **ANTHROPIC_API_KEY** added to `.env` (dormant until Phase 1.5) — paste looked possibly truncated; verify before enrichment build.
+- **Phase 1 COMPLETE (catalog + embeddings, end-to-end on real data):**
+  - ✅ Dep gate: torch 2.12.1 + open_clip 3.3.0 + transformers 5.12.1 + sqlite-vec 0.1.9 + curl_cffi 0.15.0 + apsw 3.53.2 on Py3.13/arm64. **Gotcha:** stdlib `sqlite3` here lacks loadable extensions → `sqlite-vec` attaches via **apsw** (same `dsource.db`; SQLAlchemy keeps the stdlib driver for the ORM).
+  - ✅ Harvest: `app/harvest/` Tier-0 Shopify (curl_cffi client, pure parser, `upsert_harvest`). **Live-seeded ~749 real India products** (Nilkamal 250, TrustBasket 250, Ugaoo 249) with INR prices via `scripts/harvest_seed.py`.
+  - ✅ Embeddings: `app/embeddings/` (marqo-ecommerce-B embedder + SqliteVecIndex over apsw, cosine). 120 indexed.
+  - ✅ Match: `POST /api/match` (text/image → ranked real products + honest exact/close/no_match). Retrieval ranking is GOOD (text "mesh office chair" → the real Nilkamal mesh chairs; gibberish → no_match).
+  - **KEY FINDING — modality gap:** text↔image cosines (~0.12 for correct) sit FAR below image↔image (~0.5–0.9). So bands are calibrated PER MODALITY: text exact 0.16 / close 0.10 (from seed: true-match median 0.124 vs wrong p90 0.103); image exact 0.85 / close 0.72 (conservative — image calibration is category-noise-polluted, needs cleaner signal). In `config.py`.
+  - Bugs found+fixed by the live run (both now regression-tested): manufacturer re-insert under autoflush=False (flush in `resolve_manufacturer`); same-SKU size-variants colliding in one batch (in-batch dedup in `upsert_harvest`).
+- **Open Phase-1 polish (deferred):** image-band calibration is noisy (coarse `infer_category` pollutes cross-category negatives) → refine with better categories / a small hand-verified set. "exact" rarely fires on text (gap caps ~0.20) — acceptable; "close" is the realistic text confidence.
+- **GST:** no canonical HSN table → `derive_gst(category)` (furniture 18% etc.), always flagged estimated.
+- **ANTHROPIC_API_KEY** in `.env` (dormant until Phase 1.5) — paste looked possibly truncated; verify before enrichment build.
+- **Next:** Phase 1.5 enrichment (novelty-gated Gemini/Claude) OR Phase 3 Specify material-swap (wire palettes → these real SKUs). Awaiting user pick.
 
 ## Real vs synthetic (honesty ledger)
 

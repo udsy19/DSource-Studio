@@ -25,10 +25,15 @@ class Settings(BaseSettings):
     embed_model: str = "hf-hub:Marqo/marqo-ecommerce-embeddings-B"
     embed_dim: int = 768
 
-    # Match-confidence bands (cosine). PROVISIONAL — recalibrate on real India data via
-    # scripts/harvest_seed.py. Below match_close => "no real match" (never returns the nearest).
-    match_exact: float = 0.9
-    match_close: float = 0.78
+    # Match-confidence bands per query modality (cosine). text<->image cosines sit far lower
+    # than image<->image (the CLIP/SigLIP modality gap), so they are calibrated SEPARATELY on
+    # the seed catalog. Below the close band => "no real match" (never returns the nearest).
+    # text bands derived from the seed (true-match median 0.124 vs wrong-match p90 0.103);
+    # image bands are conservative pending cleaner (less category-noisy) calibration.
+    match_text_exact: float = 0.16
+    match_text_close: float = 0.10
+    match_image_exact: float = 0.85
+    match_image_close: float = 0.72
 
     @property
     def cors_origins_list(self) -> list[str]:
