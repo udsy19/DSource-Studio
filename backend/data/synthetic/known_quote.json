@@ -1,0 +1,12 @@
+{
+  "project": "Project Alpha - 30p Office Fit-Out",
+  "note": "Synthetic stand-in for the dealer's ACTUAL firm quote on this historical project. In a real pilot this number comes from the dealer's CET/ERP. Our budgetary engine must land within tolerance of it (Gate A).",
+  "dealer_quote_total": 108500.00,
+  "dealer_quote_breakdown_optional": {
+    "net_merchandise": 82900.00,
+    "install": 12800.00,
+    "freight": 2600.00,
+    "tax": 7600.00,
+    "comment": "Dealer added slightly higher install labor + a freight minimum; totals differ from ours by design to test a real delta."
+  }
+}

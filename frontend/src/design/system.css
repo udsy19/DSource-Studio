@@ -1,0 +1,140 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   DSource component layer — primitives built only from tokens.css
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* eyebrow / label */
+.ds-eyebrow {
+  font: var(--t-small);
+  font-size: 10.5px;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* type helpers */
+.ds-display { font: var(--t-display); letter-spacing: -0.02em; }
+.ds-title   { font: var(--t-title);   letter-spacing: -0.01em; }
+.ds-lead    { font: var(--t-lead);    color: var(--ink-2); }
+.ds-numeral { font: var(--t-numeral); font-variant-numeric: tabular-nums; }
+.ds-body    { font: var(--t-body); }
+.ds-muted   { color: var(--muted); }
+
+/* rule */
+.ds-rule { height: 1px; background: var(--line); border: 0; }
+
+/* ── button ── */
+.ds-btn {
+  font: var(--t-small);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 10px 18px;
+  border-radius: var(--r1);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.ds-btn:active { transform: translateY(1px); }
+.ds-btn--primary { background: var(--accent); color: #fff8f2; }
+.ds-btn--primary:hover { background: var(--accent-press); }
+.ds-btn--ghost { background: transparent; color: var(--ink); border-color: var(--line-2); }
+.ds-btn--ghost:hover { border-color: var(--ink); }
+.ds-btn--quiet { background: transparent; color: var(--muted); padding: 10px 6px; }
+.ds-btn--quiet:hover { color: var(--accent); }
+.ds-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+/* ── field ── */
+.ds-field { display: flex; flex-direction: column; gap: 7px; }
+.ds-field > .ds-eyebrow { margin: 0; }
+.ds-input {
+  font: var(--t-body);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r1);
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.ds-input::placeholder { color: var(--faint); }
+.ds-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ds-hint { font: var(--t-small); font-size: 11.5px; color: var(--faint); }
+
+/* ── card ── */
+.ds-card {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  padding: var(--s6);
+}
+.ds-card--flat { box-shadow: none; }
+.ds-card--raised { box-shadow: var(--shadow-2); }
+
+/* ── stat ── */
+.ds-stat .v { font: var(--t-numeral); line-height: 1; }
+.ds-stat .v.accent { color: var(--accent); }
+.ds-stat .k { margin-top: 7px; font: var(--t-small); font-size: 10.5px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+
+/* ── tag / chip ── */
+.ds-tag {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: var(--t-small); font-size: 11.5px; color: var(--ink-2);
+  padding: 4px 11px; border: 1px solid var(--line-2);
+  border-radius: var(--r-pill); background: var(--paper);
+}
+.ds-tag i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.ds-tag--accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* ── callout ── */
+.ds-callout {
+  font: var(--t-small);
+  color: var(--ink-2);
+  border-left: 2px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 12px 14px;
+  border-radius: 0 var(--r1) var(--r1) 0;
+}
+.ds-callout--quiet { border-left-color: var(--line-2); background: transparent; color: var(--muted); }
+
+/* ── segmented control ── */
+.ds-seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--paper-3); border-radius: var(--r-pill); border: 1px solid var(--line);
+}
+.ds-seg button {
+  font: var(--t-small); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 6px 16px; border: 0; border-radius: var(--r-pill);
+  background: transparent; color: var(--muted); cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.ds-seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: var(--shadow-1); }
+
+/* ── showcase scaffolding ── */
+.ds-page { max-width: 1080px; margin: 0 auto; padding: var(--s8) var(--s7) 120px; }
+.ds-page h1 { font: var(--t-display); margin: 0 0 var(--s2); letter-spacing: -0.02em; }
+.ds-page .ds-sub { font: var(--t-lead); color: var(--muted); margin: 0 0 var(--s8); max-width: 56ch; }
+.ds-section { padding: var(--s7) 0; border-top: 1px solid var(--line); }
+.ds-section > .ds-eyebrow { display: block; margin-bottom: var(--s5); }
+.ds-grid { display: grid; gap: var(--s5); }
+.ds-row { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; }
+
+/* swatches */
+.ds-swatches { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.ds-swatch { border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; background: var(--paper-2); }
+.ds-swatch .chip { height: 76px; }
+.ds-swatch .meta { padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.ds-swatch .nm { font: var(--t-small); font-weight: 500; }
+.ds-swatch .hex { font: var(--t-small); font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* type specimen */
+.ds-type-row { display: grid; grid-template-columns: 120px 1fr; gap: var(--s5); align-items: baseline;
+  padding: var(--s4) 0; border-bottom: 1px solid var(--line); }
+.ds-type-row:last-child { border-bottom: 0; }
+.ds-type-row .tag { font: var(--t-small); font-size: 11px; color: var(--faint); letter-spacing: 0.06em; }
+
+/* spacing / radius specimens */
+.ds-space-row { display: flex; align-items: center; gap: var(--s4); padding: 7px 0; }
+.ds-space-row .bar { background: var(--accent-soft); border: 1px solid var(--accent-line); height: 16px; border-radius: 2px; }
+.ds-space-row .lbl { font: var(--t-small); color: var(--muted); font-variant-numeric: tabular-nums; width: 90px; }

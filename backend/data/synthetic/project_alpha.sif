@@ -1,0 +1,61 @@
+ST=Project Alpha - 30p Office Fit-Out
+SF=SYNTHETIC-PROJ-ALPHA
+
+MC=SC
+PN=SC-LEAP-V2
+PD=Leap V2 Task Chair
+QT=28
+PL=1037.00
+ON=BUZZ2
+OD=3D Knit Back - Graphite
+ON=BASE
+OD=Polished Aluminum Base
+
+MC=SC
+PN=SC-OLOGY-RECT
+PD=Ology Height-Adjustable Desk 60x30
+QT=28
+PL=1689.00
+
+MC=HMI
+PN=HM-EVERYWHERE-6
+PD=Everywhere Conference Table 6ft
+QT=3
+PL=1290.00
+
+MC=HMI
+PN=HM-AERON-B
+PD=Aeron Chair Size B
+QT=6
+PL=1795.00
+
+MC=HAW
+PN=HW-FERN-LOUNGE
+PD=Fern Lounge Chair
+QT=6
+PL=1650.00
+
+MC=KNL
+PN=KN-RILEY-OTTOMAN
+PD=Riley Ottoman
+QT=8
+PL=610.00
+
+MC=FRM
+PN=FR-FRAMERY-O
+PD=Framery O Phone Booth
+QT=2
+PL=11900.00
+S%=38.0
+
+MC=SC
+PN=SC-FLEX-PERCH
+PD=Flex Perch Stool
+QT=12
+PL=410.00
+
+MC=INT
+PN=IF-WW890-CT
+PD=World Woven 890 Carpet Tile
+QT=3200
+PL=4.85

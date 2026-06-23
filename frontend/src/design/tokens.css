@@ -1,0 +1,55 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   DSource design tokens — "warm paper, ink, one ember"
+   The single source of truth for color, type, space, line, radius, motion.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ── surfaces (warm gallery paper) ── */
+  --paper:    #f4f1ea;
+  --paper-2:  #efeae0;
+  --paper-3:  #e8e1d4;
+
+  /* ── ink (near-black, warm) ── */
+  --ink:      #1a1813;
+  --ink-2:    #3c382f;
+  --muted:    #97917f;
+  --faint:    #b9b3a3;
+
+  /* ── hairlines ── */
+  --line:     #e2ddd0;
+  --line-2:   #d6d0c0;
+
+  /* ── accent (single ember — terracotta) ── */
+  --accent:        #b8552f;
+  --accent-press:  #9c4627;
+  --accent-soft:   rgba(184, 85, 47, 0.10);
+  --accent-line:   rgba(184, 85, 47, 0.42);
+
+  /* ── type ── */
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;     /* editorial display + numerals */
+  --sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --t-display: 400 46px/1.0 var(--serif);
+  --t-title:   400 30px/1.05 var(--serif);
+  --t-numeral: 400 30px/1.0 var(--serif);
+  --t-lead:    400 18px/1.4 var(--serif);
+  --t-body:    400 14px/1.55 var(--sans);
+  --t-small:   400 12.5px/1.5 var(--sans);
+  --tracking-eyebrow: 0.2em;
+
+  /* ── space (4-based) ── */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 22px; --s6: 30px; --s7: 40px; --s8: 56px;
+
+  /* ── radius (mostly sharp) ── */
+  --r0: 0;    --r1: 3px;  --r2: 8px;  --r-pill: 100px;
+
+  /* ── elevation (whisper-soft, paper not glass) ── */
+  --shadow-1: 0 1px 2px rgba(26, 24, 19, 0.04);
+  --shadow-2: 0 8px 30px rgba(26, 24, 19, 0.07);
+
+  /* ── motion ── */
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur-1: 0.18s;
+  --dur-2: 0.4s;
+  --dur-3: 0.7s;
+}

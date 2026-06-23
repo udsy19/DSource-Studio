@@ -1,0 +1,110 @@
+ST=Pilot Dealer Catalog Export
+SF=SYNTHETIC-CATALOG-001
+
+MC=SC
+PN=SC-LEAP-V2
+PD=Leap V2 Task Chair
+QT=1
+PL=1037.00
+
+MC=SC
+PN=SC-GESTURE
+PD=Gesture Task Chair
+QT=1
+PL=1399.00
+
+MC=SC
+PN=SC-OLOGY-RECT
+PD=Ology Height-Adjustable Desk 60x30
+QT=1
+PL=1689.00
+
+MC=SC
+PN=SC-FLEX-PERCH
+PD=Flex Perch Stool
+QT=1
+PL=410.00
+
+MC=SC
+PN=SC-VERB-CONF-8
+PD=Verb Conference Table 8ft
+QT=1
+PL=2480.00
+
+MC=HMI
+PN=HM-AERON-B
+PD=Aeron Chair Size B
+QT=1
+PL=1795.00
+
+MC=HMI
+PN=HM-SAYL
+PD=Sayl Task Chair
+QT=1
+PL=695.00
+
+MC=HMI
+PN=HM-RENEW-SS
+PD=Renew Sit-to-Stand Desk 60x30
+QT=1
+PL=1545.00
+
+MC=HMI
+PN=HM-EVERYWHERE-6
+PD=Everywhere Conference Table 6ft
+QT=1
+PL=1290.00
+
+MC=HAW
+PN=HW-COMPOSE-BENCH
+PD=Compose Benching Station per seat
+QT=1
+PL=1320.00
+
+MC=HAW
+PN=HW-FERN-LOUNGE
+PD=Fern Lounge Chair
+QT=1
+PL=1650.00
+
+MC=KNL
+PN=KN-ANTENNA-BENCH
+PD=Antenna Benching per seat
+QT=1
+PL=1410.00
+
+MC=KNL
+PN=KN-RILEY-OTTOMAN
+PD=Riley Ottoman
+QT=1
+PL=610.00
+
+MC=HUM
+PN=HS-FREEDOM
+PD=Freedom Headrest Chair
+QT=1
+PL=1399.00
+
+MC=HUM
+PN=HS-FLOAT-TABLE
+PD=Float Standing Table 48x24
+QT=1
+PL=1240.00
+
+MC=FRM
+PN=FR-FRAMERY-O
+PD=Framery O Phone Booth
+QT=1
+PL=11900.00
+
+MC=FRM
+PN=FR-FRAMERY-Q
+PD=Framery Q Meeting Pod 4 person
+QT=1
+PL=29500.00
+
+MC=INT
+PN=IF-WW890-CT
+PD=World Woven 890 Carpet Tile
+QT=1
+PL=4.85

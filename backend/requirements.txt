@@ -1,0 +1,19 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-multipart==0.0.20
+pandas==2.2.3
+openpyxl==3.1.5
+pdfplumber==0.11.4
+# Real-data connectors: GSA Advantage scraper (Playwright = headless fetch through the
+# WAF; bs4 = price-list HTML parsing). Run `python -m playwright install chromium` once
+# for live GSA pulls; parsing/co-op connectors work without the browser.
+beautifulsoup4==4.15.0
+playwright==1.49.1
+# Phase 1 floor-plate ingestion: ezdxf = DXF parsing, shapely = boundary/area geometry.
+ezdxf==1.4.4
+shapely==2.1.2
+# AI render proxy (outbound call to the configured image provider)
+httpx==0.28.1

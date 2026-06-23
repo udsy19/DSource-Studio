@@ -1,0 +1,39 @@
+# ── Secrets — NEVER commit (live API keys live here) ──
+.env
+*.env
+.env.*
+
+# ── Python ──
+backend/.venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# ── Databases / local state ──
+*.db
+*.sqlite
+*.sqlite3
+backend/dsource.db
+
+# ── Large binary assets (fetch locally; see docs/data-sourcing.md) ──
+backend/data/pricebooks/*.pdf
+*.glb
+*.gltf
+
+# ── Node / frontend ──
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+
+# ── OS / editor ──
+.DS_Store
+.idea/
+.vscode/
+*.swp

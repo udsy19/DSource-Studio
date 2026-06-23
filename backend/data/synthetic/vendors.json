@@ -1,0 +1,35 @@
+{
+  "_comment": "SYNTHETIC vendor fixtures for the Smart Procurement pillar. These are FABRICATED US distributors — not real companies, not real terms. Real dealer-vendor catalogs (carried lines, negotiated multipliers, true lead times) are private/unpublished, which is the core procurement-data problem. The authoritative copy lives in app/procurement/models.py:SYNTHETIC_VENDORS; this JSON mirrors it for reference. Currency: USD.",
+  "vendors": [
+    {
+      "name": "Atlas Contract Furnishings (synthetic)",
+      "city": "Chicago", "state": "IL",
+      "lead_time_days": 21, "price_multiplier": 0.97,
+      "carried_manufacturers": ["HMI", "SC", "KNL", "HUM"]
+    },
+    {
+      "name": "Pacific Workspace Supply (synthetic)",
+      "city": "San Jose", "state": "CA",
+      "lead_time_days": 35, "price_multiplier": 0.95,
+      "carried_manufacturers": ["HMI", "HAW", "INT", "FRM"]
+    },
+    {
+      "name": "Keystone Office Distributors (synthetic)",
+      "city": "Philadelphia", "state": "PA",
+      "lead_time_days": 14, "price_multiplier": 1.02,
+      "carried_manufacturers": ["SC", "KNL", "HAW", "HUM", "INT"]
+    },
+    {
+      "name": "Lone Star Commercial Interiors (synthetic)",
+      "city": "Dallas", "state": "TX",
+      "lead_time_days": 45, "price_multiplier": 0.98,
+      "carried_manufacturers": ["HMI", "SC", "HAW", "KNL", "HUM", "INT", "FRM"]
+    },
+    {
+      "name": "Empire State Furniture Group (synthetic)",
+      "city": "Albany", "state": "NY",
+      "lead_time_days": 60, "price_multiplier": 1.05,
+      "carried_manufacturers": ["HMI", "KNL", "FRM"]
+    }
+  ]
+}
