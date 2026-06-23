@@ -1,0 +1,162 @@
+{
+  "velvet": {
+    "abrasion_wear": {"score": 2, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Cut-pile upholstery; class-typical ~15k double-rubs (residential/light-duty ACT band) unless a high-Martindale weave is specified."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (textile surface, not rated for Janka/indentation)", "rationale": "Soft pile compresses but recovers; no rigid-surface dent metric applies."},
+    "cleanability": {"score": 2, "basis": "derived_proxy", "standard_ref": "ACT cleaning code W/S/WS/X", "rationale": "Pile traps soil; most velvets are S (solvent-clean) or W, not wipe-clean."},
+    "dust_static_affinity": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (qualitative pile/static proxy)", "rationale": "Dense cut pile is a strong dust magnet and holds static; highest affinity class."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (fiber-class humidity proxy)", "rationale": "Pile holds humidity and is slow to dry; risk depends on backing fiber (synthetic vs natural)."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Inherently low-emitting fiber; backing adhesives/dyes can raise VOC unless GREENGUARD-certified."}
+  },
+  "boucle": {
+    "abrasion_wear": {"score": 2, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Looped-yarn upholstery; loops snag/pill — class-typical light-duty abrasion band."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (textile surface)", "rationale": "Soft looped surface; no rigid indentation metric applies."},
+    "cleanability": {"score": 2, "basis": "derived_proxy", "standard_ref": "ACT cleaning code W/S/WS/X", "rationale": "Loops trap soil and resist wiping; typically S/W, not wipe-clean."},
+    "dust_static_affinity": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (qualitative loop/static proxy)", "rationale": "Looped texture catches dust and lint; high affinity."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (fiber-class humidity proxy)", "rationale": "Loops hold moisture; drying slow, mould risk if backing is natural fiber."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Low-emitting unless dyes/backing adhesives raise VOC; certify to confirm."}
+  },
+  "chenille": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Tufted pile yarn; sturdier than velvet, many chenilles reach the ~30k double-rub commercial band."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (textile surface)", "rationale": "Soft pile, recovers; no rigid indentation metric."},
+    "cleanability": {"score": 2, "basis": "derived_proxy", "standard_ref": "ACT cleaning code W/S/WS/X", "rationale": "Pile holds soil; typically W/S, not wipe-clean."},
+    "dust_static_affinity": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (qualitative pile/static proxy)", "rationale": "Tufted pile attracts dust and lint; high affinity."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (fiber-class humidity proxy)", "rationale": "Pile retains humidity; drying slow depending on fiber blend."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Low-emitting fiber; backing/dye chemistry governs actual VOC."}
+  },
+  "leather_full_grain": {
+    "abrasion_wear": {"score": 4, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Full-grain hide is dense and tough; commercial-grade abrasion typical when properly tanned."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (hide surface, not Janka-rated)", "rationale": "Resists abrasion but takes scratches/scuffs that patina; no rigid indentation metric."},
+    "cleanability": {"score": 4, "basis": "derived_proxy", "standard_ref": "ACT cleaning code (leather treated as wipe-clean S/WS)", "rationale": "Sealed full-grain wipes clean; avoid soaking — moisture penetrates unfinished grain."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth-surface proxy)", "rationale": "Smooth non-pile surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (natural-hide humidity proxy)", "rationale": "Natural hide can dry/crack in low humidity and mould in high humidity if unsealed; conditioning required."},
+    "indoor_air_voc": {"score": 3, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Tanning agents/finishes vary (chrome vs veg-tan); VOC depends on finish, certify to confirm."}
+  },
+  "leather_pu": {
+    "abrasion_wear": {"score": 2, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Polyurethane-coated fabric; coating cracks/peels with wear — lower lifespan than genuine hide."},
+    "dent_hardness": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (coated-textile surface)", "rationale": "Thin coating over fabric; no rigid indentation metric, prone to surface delamination."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "ACT cleaning code (PU treated as wipe-clean W/WS)", "rationale": "Non-porous coating wipes clean easily; top maintenance trait of this material."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth-surface proxy)", "rationale": "Smooth sealed surface sheds dust; low affinity."},
+    "moisture_humidity_behavior": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (synthetic-coating humidity proxy)", "rationale": "Coating is water-resistant and inert to humidity; backing fabric can hold moisture if breached."},
+    "indoor_air_voc": {"score": 2, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Polyurethane coatings/plasticizers can off-gas; certify to confirm low emission."}
+  },
+  "rattan_cane": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (natural-fiber abrasion proxy; no textile/tile rating applies)", "rationale": "Woven plant fiber; durable in tension but strands fray and snap under point abrasion."},
+    "dent_hardness": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (woven hollow fiber, not Janka-rated)", "rationale": "Hollow canes dent and crack under load; low indentation resistance."},
+    "cleanability": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (porous woven surface)", "rationale": "Weave crevices trap dust and resist wiping; needs brushing/vacuuming."},
+    "dust_static_affinity": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (crevice-trap proxy)", "rationale": "Open weave crevices trap dust heavily; high affinity."},
+    "moisture_humidity_behavior": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (natural plant-fiber humidity proxy)", "rationale": "India-critical: natural plant fiber swells, sags and moulds in high humidity unless sealed; brittle in dry heat."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (untreated natural fiber, inherently low-emitting)", "rationale": "Bare natural material off-gasses little; only added lacquers/adhesives would raise VOC."}
+  },
+  "solid_wood_teak": {
+    "abrasion_wear": {"score": 4, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (~1070 lbf)", "rationale": "Dense oily hardwood resists surface wear well; Janka ~1070 lbf."},
+    "dent_hardness": {"score": 4, "basis": "measured_standard", "standard_ref": "Janka ASTM D1037 = 1070 lbf", "rationale": "Published Janka hardness for teak is ~1070 lbf — a real species-level standard value."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (sealed-wood surface)", "rationale": "Sealed teak wipes clean; raw/oiled grain absorbs spills and stains."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth sealed-surface proxy)", "rationale": "Smooth finished surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (oily-hardwood humidity proxy)", "rationale": "Natural oils make teak unusually dimensionally stable in humidity vs other solid woods; still moves seasonally."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (solid wood, inherently low-emitting)", "rationale": "Solid wood has no added formaldehyde binders; VOC comes only from any applied finish."}
+  },
+  "solid_wood_sheesham": {
+    "abrasion_wear": {"score": 5, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (~1780 lbf)", "rationale": "Very dense rosewood (sheesham); high surface-wear resistance, Janka ~1780 lbf."},
+    "dent_hardness": {"score": 5, "basis": "measured_standard", "standard_ref": "Janka ASTM D1037 = 1780 lbf", "rationale": "Published Janka hardness for sheesham (Indian rosewood) is ~1780 lbf — a real species-level value."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (sealed-wood surface)", "rationale": "Sealed surface wipes clean; open grain absorbs spills."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth sealed-surface proxy)", "rationale": "Smooth finished surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (solid-hardwood humidity proxy)", "rationale": "India-critical: dense hardwood moves and can warp/check with humidity swings unless sealed and acclimatized."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (solid wood, inherently low-emitting)", "rationale": "No added formaldehyde binders; VOC limited to applied finish."}
+  },
+  "rubberwood": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (~960 lbf)", "rationale": "Mid-density hardwood; moderate surface-wear resistance, Janka ~960 lbf."},
+    "dent_hardness": {"score": 3, "basis": "measured_standard", "standard_ref": "Janka ASTM D1037 = 960 lbf", "rationale": "Published Janka hardness for rubberwood is ~960 lbf — a real species-level value."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (sealed-wood surface)", "rationale": "Sealed surface wipes clean; raw grain stains."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth sealed-surface proxy)", "rationale": "Smooth finished surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (solid-wood humidity proxy)", "rationale": "India-critical: rubberwood is prone to swelling, fungal stain and borer in high humidity unless kiln-dried and treated."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "n/a (solid wood, but commonly finger-jointed with adhesives)", "rationale": "Solid wood itself is low-emitting, but rubberwood is often finger-jointed/glued — joint adhesive can add formaldehyde."}
+  },
+  "engineered_wood": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (veneer over core)", "rationale": "Wear governed by the thin veneer/wear layer over a stable engineered core; moderate."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (depends on veneer species over core)", "rationale": "Core is stable but veneer is thin; dent resistance limited by surface layer."},
+    "cleanability": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (sealed factory finish)", "rationale": "Factory-sealed surface wipes clean; edges/joints can wick moisture."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth sealed-surface proxy)", "rationale": "Smooth finished surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (engineered-core humidity proxy)", "rationale": "Cross-laminated/plywood core is more stable than solid wood, but exposed edges swell if moisture reaches the core."},
+    "indoor_air_voc": {"score": 2, "basis": "estimated", "standard_ref": "Formaldehyde class E1/E0 / CARB Phase 2; GREENGUARD UL 2818", "rationale": "Glue-bonded core can off-gas formaldehyde; specify E0/CARB Phase 2 / GREENGUARD to control emission."}
+  },
+  "mdf": {
+    "abrasion_wear": {"score": 2, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (low for fiberboard) / AC rating if laminated", "rationale": "Bare MDF is soft and wears quickly; durability depends entirely on any laminate/coating applied."},
+    "dent_hardness": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (fiberboard, low indentation resistance)", "rationale": "Compressed fiber dents and crushes under point load; low hardness."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (depends on surface coating)", "rationale": "Coated/laminated MDF wipes clean; raw or cut edges absorb water and swell irreversibly."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth coated-surface proxy)", "rationale": "Smooth coated surface sheds dust; raw edges shed fiber dust."},
+    "moisture_humidity_behavior": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (fiberboard humidity proxy)", "rationale": "India-critical: MDF swells and disintegrates with moisture/high humidity unless fully sealed; worst-in-class for damp climates."},
+    "indoor_air_voc": {"score": 1, "basis": "estimated", "standard_ref": "Formaldehyde class E1/E0 / CARB Phase 2; GREENGUARD UL 2818", "rationale": "Urea-formaldehyde-bonded fiber is a primary indoor formaldehyde source; require CARB Phase 2 / E0 / GREENGUARD."}
+  },
+  "particleboard": {
+    "abrasion_wear": {"score": 1, "basis": "derived_proxy", "standard_ref": "Janka ASTM D1037 (very low for particleboard) / AC rating if laminated", "rationale": "Bonded wood chips are weak; surface durability comes only from any melamine/laminate facing."},
+    "dent_hardness": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (chipboard, very low indentation resistance)", "rationale": "Loose chip structure crushes easily; lowest hardness of the panel materials."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (depends on melamine/laminate facing)", "rationale": "Melamine-faced board wipes clean; exposed chip edges absorb water and crumble."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth faced-surface proxy)", "rationale": "Faced surface sheds dust; raw edges shed chip dust."},
+    "moisture_humidity_behavior": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (chipboard humidity proxy)", "rationale": "India-critical: particleboard swells and crumbles with moisture/high humidity; unsuitable for damp areas unsealed."},
+    "indoor_air_voc": {"score": 1, "basis": "estimated", "standard_ref": "Formaldehyde class E1/E0 / CARB Phase 2; GREENGUARD UL 2818", "rationale": "High urea-formaldehyde binder content; among the largest indoor formaldehyde sources — require CARB Phase 2 / E0."}
+  },
+  "glass": {
+    "abrasion_wear": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (vitreous surface; PEI/Martindale not applicable)", "rationale": "Hard vitreous surface resists scratching/abrasion; near top-of-class (can chip on impact)."},
+    "dent_hardness": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (rigid vitreous, not Janka-rated)", "rationale": "Effectively non-indentable; brittle failure is by fracture, not denting."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (non-porous wipe-clean surface)", "rationale": "Non-porous smooth surface wipes fully clean; top maintenance trait."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth non-porous proxy)", "rationale": "Smooth sealed surface; dust sits loosely and wipes off, low static. Lowest affinity class."},
+    "moisture_humidity_behavior": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (inert vitreous material)", "rationale": "Completely inert to moisture and humidity; no swelling or mould."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (inert inorganic material, zero off-gassing)", "rationale": "Inorganic and inert; emits no VOC."}
+  },
+  "hpl_laminate": {
+    "abrasion_wear": {"score": 4, "basis": "derived_proxy", "standard_ref": "EN 13329 AC rating (AC1-AC6)", "rationale": "High-pressure laminate wear layer resists abrasion well; AC band depends on grade (commonly AC3-AC5)."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (hard surface over substrate)", "rationale": "Hard wear layer resists surface marring; dent resistance limited by the substrate beneath."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (non-porous wipe-clean surface)", "rationale": "Non-porous laminate wipes clean easily; top maintenance trait."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth non-porous proxy)", "rationale": "Smooth sealed surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (sealed-laminate humidity proxy)", "rationale": "Laminate face is inert to humidity; only exposed substrate edges/seams are vulnerable to moisture."},
+    "indoor_air_voc": {"score": 3, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818; substrate formaldehyde class", "rationale": "Laminate itself is low-emitting; emissions driven by the bonding adhesive and the panel substrate — certify."}
+  },
+  "glazed_porcelain_tile": {
+    "abrasion_wear": {"score": 5, "basis": "measured_standard", "standard_ref": "ISO 10545-7 PEI (rated I-V)", "rationale": "Glazed porcelain abrasion is rated on the published PEI scale (ISO 10545-7); commercial grades reach PEI IV-V."},
+    "dent_hardness": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (vitrified ceramic, not Janka-rated)", "rationale": "Vitrified body is extremely hard; effectively non-indentable, fails by chipping on impact."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (non-porous glazed surface)", "rationale": "Glazed non-porous face wipes clean; grout joints are the only soil trap."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth non-porous proxy)", "rationale": "Smooth glazed surface sheds dust; low static."},
+    "moisture_humidity_behavior": {"score": 5, "basis": "derived_proxy", "standard_ref": "ISO 10545-3 water absorption (<0.5% for porcelain)", "rationale": "Vitrified low-absorption body is effectively inert to moisture and humidity."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (fired inorganic ceramic, zero off-gassing)", "rationale": "Fired inorganic material emits no VOC."}
+  },
+  "natural_stone_marble": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "ASTM C241 / C501 abrasion resistance (Ha index)", "rationale": "Calcite stone; harder than wood but softer than porcelain and prone to surface dulling from traffic."},
+    "dent_hardness": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (stone, not Janka-rated)", "rationale": "Rigid and hard, resists indentation; can chip on sharp impact."},
+    "cleanability": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (porous calcite surface)", "rationale": "Porous and acid-sensitive; etches and stains from spills unless sealed — wiping is not enough."},
+    "dust_static_affinity": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (smooth sealed-surface proxy)", "rationale": "Polished surface sheds dust; honed/unsealed surface holds more."},
+    "moisture_humidity_behavior": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (porous-stone humidity proxy)", "rationale": "Calcite is porous; absorbs moisture and can harbor staining/efflorescence unless sealed, but does not swell."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (inert mineral, zero off-gassing)", "rationale": "Inert natural mineral emits no VOC; only an applied sealer would contribute."}
+  },
+  "powder_coated_steel": {
+    "abrasion_wear": {"score": 4, "basis": "derived_proxy", "standard_ref": "ASTM D4060 Taber abrasion (coating)", "rationale": "Cured powder coat is a tough abrasion-resistant film over steel; chips at edges under hard impact."},
+    "dent_hardness": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (steel substrate, not Janka-rated)", "rationale": "Steel resists indentation strongly; thin-gauge sections can dent on heavy impact."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (non-porous coated surface)", "rationale": "Non-porous coated surface wipes clean easily; top maintenance trait."},
+    "dust_static_affinity": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (smooth non-porous proxy)", "rationale": "Smooth sealed surface sheds dust; grounded metal does not hold static."},
+    "moisture_humidity_behavior": {"score": 4, "basis": "derived_proxy", "standard_ref": "ASTM B117 salt-spray (corrosion of coated steel)", "rationale": "Intact powder coat protects steel from humidity; corrosion risk only where the coating is breached."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (cured powder coat is solvent-free)", "rationale": "Powder coating is applied solvent-free and fully cured; negligible VOC."}
+  },
+  "polypropylene_plastic": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "ASTM D4060 Taber abrasion (plastics)", "rationale": "Tough thermoplastic with moderate abrasion resistance; scratches but resists cracking."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "ISO 868 / ASTM D2240 Shore hardness", "rationale": "Semi-rigid plastic; flexes and recovers rather than denting permanently."},
+    "cleanability": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (non-porous moulded surface)", "rationale": "Non-porous moulded surface wipes clean easily; top maintenance trait."},
+    "dust_static_affinity": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (plastic static-charge proxy)", "rationale": "Insulating plastic readily holds static charge and attracts dust despite smooth surface."},
+    "moisture_humidity_behavior": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (hydrophobic thermoplastic)", "rationale": "Hydrophobic and inert to moisture/humidity; no swelling or mould."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Polypropylene is low-emitting; residual additives/colorants can off-gas slightly — certify to confirm."}
+  },
+  "polyester_fabric": {
+    "abrasion_wear": {"score": 3, "basis": "derived_proxy", "standard_ref": "ISO 12947 Martindale / ASTM D4157 Wyzenbeek (ACT bands)", "rationale": "Synthetic woven fabric; many polyester upholstery weaves reach the ~30k double-rub commercial band."},
+    "dent_hardness": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (textile surface)", "rationale": "Flexible textile; no rigid indentation metric applies."},
+    "cleanability": {"score": 3, "basis": "derived_proxy", "standard_ref": "ACT cleaning code W/S/WS/X", "rationale": "Often W or WS cleanable; flat weaves clean more readily than pile."},
+    "dust_static_affinity": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (synthetic static-charge proxy)", "rationale": "Synthetic fiber holds static and attracts dust/lint; high affinity."},
+    "moisture_humidity_behavior": {"score": 4, "basis": "derived_proxy", "standard_ref": "n/a (synthetic-fiber humidity proxy)", "rationale": "Hydrophobic fiber dries fast and resists mould better than natural fibers; backing/foam can still hold moisture."},
+    "indoor_air_voc": {"score": 4, "basis": "estimated", "standard_ref": "GREENGUARD UL 2818 (if certified)", "rationale": "Low-emitting fiber; dyes, finishes and backing adhesives govern actual VOC — certify."}
+  },
+  "jute": {
+    "abrasion_wear": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (natural-fiber abrasion proxy; no textile rating applies)", "rationale": "Coarse bast fiber; sheds and frays under traffic, low abrasion lifespan."},
+    "dent_hardness": {"score": 2, "basis": "derived_proxy", "standard_ref": "n/a (soft natural fiber)", "rationale": "Soft fibrous surface; crushes under load, no rigid indentation metric."},
+    "cleanability": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (porous natural-fiber surface)", "rationale": "Highly absorbent and water-sensitive; stains readily and cannot be wet-cleaned — spot-clean only."},
+    "dust_static_affinity": {"score": 3, "basis": "derived_proxy", "standard_ref": "n/a (porous-weave dust proxy)", "rationale": "Coarse open weave traps dust and sheds fiber; moderate-to-high affinity, low static."},
+    "moisture_humidity_behavior": {"score": 1, "basis": "derived_proxy", "standard_ref": "n/a (natural plant-fiber humidity proxy)", "rationale": "India-critical: highly hygroscopic plant fiber; absorbs humidity, smells and moulds quickly in damp conditions."},
+    "indoor_air_voc": {"score": 5, "basis": "derived_proxy", "standard_ref": "n/a (untreated natural fiber, inherently low-emitting)", "rationale": "Bare natural fiber off-gasses little; only backing latex/adhesive would raise VOC."}
+  }
+}
