@@ -28,3 +28,6 @@ open_clip_torch==3.3.0
 transformers==5.12.1
 sqlite-vec==0.1.9
 apsw==3.53.2.0
+# Phase 1.5 enrichment — vision-LLM structured material extraction (schema-constrained).
+anthropic==0.111.0
+google-genai==2.9.0
