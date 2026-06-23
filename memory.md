@@ -42,10 +42,11 @@ _Last updated: 2026-06-22._
   - ✅ Match: `POST /api/match` (text/image → ranked real products + honest exact/close/no_match). Retrieval ranking is GOOD (text "mesh office chair" → the real Nilkamal mesh chairs; gibberish → no_match).
   - **KEY FINDING — modality gap:** text↔image cosines (~0.12 for correct) sit FAR below image↔image (~0.5–0.9). So bands are calibrated PER MODALITY: text exact 0.16 / close 0.10 (from seed: true-match median 0.124 vs wrong p90 0.103); image exact 0.85 / close 0.72 (conservative — image calibration is category-noise-polluted, needs cleaner signal). In `config.py`.
   - Bugs found+fixed by the live run (both now regression-tested): manufacturer re-insert under autoflush=False (flush in `resolve_manufacturer`); same-SKU size-variants colliding in one batch (in-batch dedup in `upsert_harvest`).
-- **Open Phase-1 polish (deferred):** image-band calibration is noisy (coarse `infer_category` pollutes cross-category negatives) → refine with better categories / a small hand-verified set. "exact" rarely fires on text (gap caps ~0.20) — acceptable; "close" is the realistic text confidence.
+- ✅ **Phase 1 polish done:** `calibrate_bands` now picks the best balanced-accuracy threshold per modality and reports TPR/TNR (seed: text BA 0.81, image BA 0.83); config bands set from it (text 0.13/0.08, image 0.80/0.68). `infer_category` broadened (lighting/planters/decor). Harvest now captures stripped `body_html` as `description` (feeds enrichment).
+- ✅ **Phase 1.5 enrichment done:** `app/enrichment/` — one Pydantic `MaterialEnrichment` (value/confidence/source per attr, 'missing' explicit) drives both providers via SDKs (anthropic 0.111, google-genai 2.9). `decide_provider` novelty-gates (near-dup of an enriched product → Gemini; novel → Claude); content-hash cache; resilient provider fallback. **Live-verified on real products via Gemini** (e.g. plastic/engineered-wood with honest image/title/inferred source). 8 unit tests (fakes). CLI: `scripts/enrich_seed.py`.
+- ⚠️ **ANTHROPIC_API_KEY is truncated** (confirmed: live Claude calls 401 → fall back to Gemini). Re-paste full key in `.env` to enable the novel-item Claude path; Gemini path works now.
 - **GST:** no canonical HSN table → `derive_gst(category)` (furniture 18% etc.), always flagged estimated.
-- **ANTHROPIC_API_KEY** in `.env` (dormant until Phase 1.5) — paste looked possibly truncated; verify before enrichment build.
-- **Next:** Phase 1.5 enrichment (novelty-gated Gemini/Claude) OR Phase 3 Specify material-swap (wire palettes → these real SKUs). Awaiting user pick.
+- **Next options:** Phase 3 Specify material-swap (wire 3D palettes → real SKUs + enriched attrs → priced BOM) · Phase 2 material→maintenance derivation · re-paste Claude key + bulk-enrich the catalog.
 
 ## Real vs synthetic (honesty ledger)
 
