@@ -17,3 +17,14 @@ ezdxf==1.4.4
 shapely==2.1.2
 # AI render proxy (outbound call to the configured image provider)
 httpx==0.28.1
+# Phase 1 catalog + embeddings (free/local-first). curl_cffi = WAF-robust harvest client
+# (impersonates Chrome TLS/HTTP2); open_clip + torch = marqo-ecommerce-B image/text
+# embeddings; transformers = the model's HF text tokenizer; sqlite-vec = in-process vector
+# index; apsw = SQLite driver WITH loadable-extension support (the stdlib sqlite3 on this
+# macOS Python is built without it, so sqlite-vec must attach through apsw).
+curl_cffi==0.15.0
+torch==2.12.1
+open_clip_torch==3.3.0
+transformers==5.12.1
+sqlite-vec==0.1.9
+apsw==3.53.2.0
