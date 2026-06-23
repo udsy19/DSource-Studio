@@ -34,8 +34,14 @@ _Last updated: 2026-06-22._
 - **Repo:** git initialized, pushed to GitHub `main` (initial commit `479966a`). `.gitignore` hardened (all `*.env` excluded; verified no secrets staged). `.claude/rules/git-workflow.md` added.
 - **Existing engine (from Studio):** CAD ingest (DXF/DWG + unit norm), faithful 2D+3D viewer, test-fit, wellbeing scoring, pricing connectors (~53% real), procurement RFQ/PO, Flux-Canny render proxy. 64 tests green. ~5,400 LoC Python, ~1,700 LoC TS.
 - **AI render:** just rewrote to a two-pass crisp line-art ControlNet capture for layout fidelity (`CadViewer.tsx` + `render.py` flux params). Awaiting in-app retest by user.
-- **Docs:** `CLAUDE.md`, `ROADMAP.md`, `memory.md` created (this commit).
-- **Phase 1:** NOT started — awaiting answers to open questions + plan approval.
+- **Docs:** `CLAUDE.md`, `ROADMAP.md`, `memory.md` created.
+- **Phase 1 IN PROGRESS:**
+  - ✅ Step 1 (dep gate): torch 2.12.1 + open_clip 3.3.0 + transformers 5.12.1 + sqlite-vec 0.1.9 + curl_cffi 0.15.0 + apsw 3.53.2 install on Py3.13/arm64. marqo-ecommerce-B verified: image+text both 768-dim unit-norm; MPS available. **Key gotcha:** stdlib `sqlite3` on this macOS Python is built WITHOUT loadable extensions → `sqlite-vec` must attach via **apsw** (SqliteVecIndex will use apsw, pointed at the same `dsource.db`; SQLAlchemy keeps the stdlib driver for the ORM).
+  - ✅ Step 2 (Tier-0 Shopify harvest): `app/harvest/` (schema.py NormalizedProduct + derive_gst, client.py curl_cffi, shopify.py pure parse + fetch). Pure parser offline-tested incl. rifeindia price=0/null-sku regression. 71 tests green.
+  - ⏭ Next: persist NormalizedProduct → catalog (extend `Product` w/ image_url/price_inr/gst_rate/provenance), then embeddings module, match endpoint, calibration.
+- **Calibration plan (no labeled set):** self-label from the catalog — multi-image products give same-product positives; title→image gives text positives; within/cross-category give close/no-match. No hand-labeling needed.
+- **GST:** no canonical HSN table provided → `derive_gst(category)` (furniture 18% etc.), always flagged estimated.
+- **ANTHROPIC_API_KEY** added to `.env` (dormant until Phase 1.5) — paste looked possibly truncated; verify before enrichment build.
 
 ## Real vs synthetic (honesty ledger)
 
