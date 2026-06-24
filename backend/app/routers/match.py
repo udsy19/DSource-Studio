@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..embeddings.catalog_index import get_embedder, get_index
+from ..materials.derive import derive_material_attributes, material_family_from
 from ..models import Product
 
 router = APIRouter(prefix="/api/match", tags=["match"])
@@ -88,6 +89,8 @@ def _results(db: Session, hits: list[tuple[int, float]], bands: MatchBands) -> l
             continue
         prov = p.provenance or {}
         enrichment = prov.get("enrichment") or None
+        material = _primary_material(enrichment, prov.get("material_attrs"))
+        family = material_family_from(material)
         out.append({
             "product_id": p.id, "sku": p.sku, "name": p.name, "category": p.category,
             "vendor": prov.get("vendor") or p.manufacturer_code,
@@ -95,8 +98,9 @@ def _results(db: Session, hits: list[tuple[int, float]], bands: MatchBands) -> l
             "image_url": p.image_url, "url": prov.get("url"),
             "score": round(score, 4), "label": band(score, bands),
             "flagged_fields": prov.get("flagged_fields", []),
-            "material": _primary_material(enrichment, prov.get("material_attrs")),
+            "material": material,
             "enrichment": enrichment,
+            "maintenance": derive_material_attributes(family) if family else None,
         })
     return out
 

@@ -36,6 +36,16 @@ def test_enrichment_material_and_dict_exposed(db):
 
     assert result["material"] == "solid sheesham"
     assert result["enrichment"] == enrichment
+    # material maps to a known family -> a real derived maintenance profile is attached
+    assert result["maintenance"] is not None
+    assert "dust_static_affinity" in result["maintenance"]
+
+
+def test_unmappable_material_has_no_maintenance(db):
+    product_id = _add(db, {"material_attrs": {"primary_material": "aerogel"}})
+    result = _results(db, [(product_id, 0.9)], BANDS)[0]
+    assert result["material"] == "aerogel"
+    assert result["maintenance"] is None  # unknown family -> no fabricated profile
 
 
 def test_material_attrs_fallback_no_enrichment(db):

@@ -46,6 +46,41 @@ def _normalize(material_family: str) -> str:
     return re.sub(r"[\s\-]+", "_", material_family.strip().lower())
 
 
+# Map freeform material text (enrichment values, harvest tags) to a table family key. Ordered
+# specific-before-generic so "engineered wood" / "pu leather" don't fall to a broader key. Bare
+# "wood" is intentionally absent: which wood matters (teak vs engineered differ a lot), so an
+# unmappable term returns None rather than asserting a family we don't actually know.
+_FAMILY_ALIASES: tuple[tuple[str, str], ...] = (
+    ("sheesham", "solid_wood_sheesham"), ("rosewood", "solid_wood_sheesham"),
+    ("teak", "solid_wood_teak"), ("rubberwood", "rubberwood"), ("rubber wood", "rubberwood"),
+    ("engineered wood", "engineered_wood"), ("plywood", "engineered_wood"),
+    ("particle", "particleboard"), ("mdf", "mdf"),
+    ("boucle", "boucle"), ("bouclé", "boucle"), ("chenille", "chenille"), ("velvet", "velvet"),
+    ("faux leather", "leather_pu"), ("pu leather", "leather_pu"), ("leatherette", "leather_pu"),
+    ("leather", "leather_full_grain"),
+    ("rattan", "rattan_cane"), ("cane", "rattan_cane"), ("wicker", "rattan_cane"), ("jute", "jute"),
+    ("glass", "glass"), ("laminate", "hpl_laminate"), ("hpl", "hpl_laminate"),
+    ("porcelain", "glazed_porcelain_tile"), ("vitrified", "glazed_porcelain_tile"),
+    ("ceramic", "glazed_porcelain_tile"),
+    ("marble", "natural_stone_marble"), ("granite", "natural_stone_marble"),
+    ("stone", "natural_stone_marble"),
+    ("steel", "powder_coated_steel"), ("metal", "powder_coated_steel"),
+    ("iron", "powder_coated_steel"), ("aluminium", "powder_coated_steel"),
+    ("aluminum", "powder_coated_steel"),
+    ("mesh", "polypropylene_plastic"), ("polypropylene", "polypropylene_plastic"),
+    ("plastic", "polypropylene_plastic"), ("abs", "polypropylene_plastic"),
+    ("polyester", "polyester_fabric"), ("fabric", "polyester_fabric"),
+    ("cotton", "polyester_fabric"), ("upholster", "polyester_fabric"),
+)
+
+
+def material_family_from(text: str | None) -> str | None:
+    if not text:
+        return None
+    low = text.lower()
+    return next((key for needle, key in _FAMILY_ALIASES if needle in low), None)
+
+
 def _estimated_axis(axis: str, family: str) -> dict:
     return {
         "score": 2,

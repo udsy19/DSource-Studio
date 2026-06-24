@@ -1,6 +1,6 @@
 """Material derivation tests — fast, deterministic (no network, no model, no DB)."""
 
-from app.materials.derive import AXES, derive_material_attributes
+from app.materials.derive import AXES, derive_material_attributes, material_family_from
 
 VALID_BASES = {"measured_standard", "derived_proxy", "estimated"}
 
@@ -51,3 +51,12 @@ def test_override_without_recognized_lab_field_does_not_promote():
 def test_dust_static_affinity_velvet_high_glass_low():
     assert derive_material_attributes("velvet")["dust_static_affinity"]["score"] >= 4
     assert derive_material_attributes("glass")["dust_static_affinity"]["score"] <= 1
+
+
+def test_material_family_from_maps_freeform_text():
+    assert material_family_from("solid sheesham wood") == "solid_wood_sheesham"
+    assert material_family_from("Engineered Wood") == "engineered_wood"  # specific before generic
+    assert material_family_from("powder-coated steel frame with mesh seat") == "powder_coated_steel"
+    assert material_family_from("PU Leather") == "leather_pu"
+    assert material_family_from(None) is None
+    assert material_family_from("antigravity foam") is None  # unmappable -> None, never guessed
