@@ -62,6 +62,21 @@ def test_zero_price_and_null_sku_are_flagged_not_faked():
     assert "sku" in arm.flagged_fields
 
 
+def test_prefers_priced_variant_over_zero_sample():
+    # Some stores (e.g. wallpaper) list a ₹0 "sample" variant first; take the real-priced one.
+    payload = {"products": [{
+        "title": "Olive Meadow Wallpaper", "handle": "olive-meadow", "product_type": "Wallpaper",
+        "vendor": "Giffywalls", "tags": [], "images": [{"src": "https://cdn/w.jpg"}],
+        "variants": [
+            {"sku": "GW-SAMPLE", "price": "0.00", "available": True},
+            {"sku": "GW-ROLL", "price": "1290.00", "available": True},
+        ],
+    }]}
+    wall = parse_products_json(payload, "GW", base_url="https://shop.test")[0]
+    assert wall.price_inr == 1290.0
+    assert wall.sku == "GW-ROLL"
+
+
 def test_missing_images_and_material_are_flagged():
     table = parse_products_json(PAYLOAD, "TB", base_url="https://shop.test")[2]
     assert table.price_inr == 3200.0

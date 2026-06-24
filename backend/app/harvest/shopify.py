@@ -89,9 +89,13 @@ def _parse_product(
 
 
 def _primary_variant(variants: list[dict]) -> dict:
-    """First available variant, else the first listed, else empty."""
+    """Prefer the first non-zero-priced variant (some stores list a ₹0 'sample' variant first,
+    e.g. wallpaper rolls), then the first available, then the first listed."""
     if not variants:
         return {}
+    priced = [v for v in variants if _parse_price(v.get("price")) is not None]
+    if priced:
+        return next((v for v in priced if v.get("available")), priced[0])
     return next((v for v in variants if v.get("available")), variants[0])
 
 
