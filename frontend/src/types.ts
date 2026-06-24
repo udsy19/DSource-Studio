@@ -126,6 +126,13 @@ export interface TestFitResponse {
 
 export type MatchLabel = "exact" | "close" | "no_match";
 
+export interface MaintenanceAxis {
+  score: number;
+  basis: "measured_standard" | "derived_proxy" | "estimated";
+  standard_ref: string;
+  rationale: string;
+}
+
 export interface MatchResult {
   product_id: number;
   sku: string;
@@ -139,4 +146,7 @@ export interface MatchResult {
   score: number;
   label: MatchLabel;
   flagged_fields: string[];
+  material: string | null;
+  enrichment: Record<string, { value: string | null; confidence: number; source: string }> | null;
+  maintenance: Record<string, MaintenanceAxis> | null;
 }

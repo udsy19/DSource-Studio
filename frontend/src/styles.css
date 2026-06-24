@@ -143,6 +143,8 @@ header.bar {
 .match-tag.is-close { background: rgba(200, 140, 70, 0.14); border-color: rgba(200, 140, 70, 0.35); }
 .match-tag.is-none, .match-tag.is-loading { color: var(--muted); }
 .mat-bom { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding-top: 12px; }
+.bom-item { display: flex; flex-direction: column; gap: 1px; }
+.bom-detail { font-size: 10px; line-height: 1.3; }
 .bom-line, .bom-total { display: flex; justify-content: space-between; gap: 10px; font: var(--t-small); font-size: 12px; }
 .bom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .bom-vendor { font-size: 10.5px; }

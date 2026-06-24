@@ -327,6 +327,17 @@ export function Cad3D({ geometry }: { geometry: CadGeometry }) {
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
+// Compact material + maintenance line from the matched product (only what's actually known).
+function materialSummary(m: MatchResult): string {
+  const parts: string[] = [];
+  if (m.material) parts.push(m.material);
+  const dust = m.maintenance?.dust_static_affinity?.score;
+  if (dust != null) parts.push(`dust ${dust}/5`);
+  const clean = m.maintenance?.cleanability?.score;
+  if (clean != null) parts.push(`wipe ${clean}/5`);
+  return parts.join(" · ");
+}
+
 function MatRow(
   { label, mats, active, match, onPick }:
   { label: string; mats: Mat[]; active: Mat; match: SlotMatch; onPick: (m: Mat) => void },
@@ -377,10 +388,13 @@ function MaterialBom({ matches }: { matches: Record<Slot, SlotMatch> }) {
   return (
     <div className="mat-bom">
       {rows.map((m) => (
-        <div className="bom-line" key={m.product_id}>
-          <span className="bom-name">{m.name.length > 30 ? `${m.name.slice(0, 30)}…` : m.name}</span>
-          <span className="bom-vendor ds-muted">{m.vendor}</span>
-          <span className="bom-price">{inr(m.price_inr as number)}</span>
+        <div className="bom-item" key={m.product_id}>
+          <div className="bom-line">
+            <span className="bom-name">{m.name.length > 30 ? `${m.name.slice(0, 30)}…` : m.name}</span>
+            <span className="bom-vendor ds-muted">{m.vendor}</span>
+            <span className="bom-price">{inr(m.price_inr as number)}</span>
+          </div>
+          {materialSummary(m) && <div className="bom-detail ds-muted">{materialSummary(m)}</div>}
         </div>
       ))}
       <div className="bom-total"><span>Materials subtotal</span><span>{inr(subtotal)}</span></div>
