@@ -92,6 +92,10 @@ header.bar {
 
 /* 3D space */
 .space3d { position: absolute; inset: 0; animation: fade 0.6s ease both; }
+.space3d-fallback {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 0 18%; color: var(--muted); font-size: 13px; line-height: 1.6;
+}
 .space3d canvas { display: block; }
 .mat-controls {
   position: absolute; left: 36px; bottom: 26px; z-index: 6;

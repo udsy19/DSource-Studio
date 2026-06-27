@@ -1,9 +1,29 @@
 import { ContactShadows, OrbitControls, useGLTF } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { useMemo, useState } from "react";
+import { Component, type ReactNode, useMemo, useState } from "react";
 import * as THREE from "three";
 import { renderView } from "../api";
 import type { Instance, Plan } from "../types";
+
+/* Guards the WebGL canvas: if the browser/GPU can't start WebGL, show a calm fallback instead of
+   crashing the whole Studio (the 2D Plan and every export keep working). */
+class WebGLBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="space3d-fallback">
+          3D view unavailable — this browser or GPU could not start WebGL. The 2D Plan and all
+          exports still work.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ── finishes (the "materials" the customer can swap) ── */
 const FLOORS = [
@@ -323,14 +343,16 @@ export default function SpaceView({ plan, instances }: { plan: Plan; instances: 
 
   return (
     <div className="space3d">
-      <Canvas
-        shadows
-        gl={{ preserveDrawingBuffer: true }}
-        camera={{ position: [size * 0.75, size * 0.7, size * 0.85], fov: 34 }}
-        dpr={[1, 2]}
-      >
-        <Scene plan={plan} instances={instances} floor={floor} finish={finish} />
-      </Canvas>
+      <WebGLBoundary>
+        <Canvas
+          shadows
+          gl={{ preserveDrawingBuffer: true }}
+          camera={{ position: [size * 0.75, size * 0.7, size * 0.85], fov: 34 }}
+          dpr={[1, 2]}
+        >
+          <Scene plan={plan} instances={instances} floor={floor} finish={finish} />
+        </Canvas>
+      </WebGLBoundary>
 
       <div className="mat-controls">
         <div className="mat-group">
