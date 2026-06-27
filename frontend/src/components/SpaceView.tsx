@@ -41,6 +41,7 @@ const FINISHES = [
 
 const WALL_H = 3.2;
 const ROOM_H = 7;
+const LAYOUT_WALL_H = 8.0; // real extracted walls + glass partitions: ceiling-ish, so rooms enclose
 const MAX_RENDER = 2500; // safety cap so a pathological plan never freezes the browser
 
 type World = { cx: number; cy: number; size: number; wx: (x: number) => number; wz: (y: number) => number };
@@ -290,9 +291,9 @@ function Cabinet({ w, h }: { w: number; h: number }) {
 function GlassPanel({ w, h }: { w: number; h: number }) {
   const span = Math.max(w, h);
   return (
-    <mesh position={[0, WALL_H / 2, 0]} castShadow>
-      <boxGeometry args={[span, WALL_H, 0.16]} />
-      <meshStandardMaterial color="#aec4cc" transparent opacity={0.28} roughness={0.1} metalness={0.1} />
+    <mesh position={[0, LAYOUT_WALL_H / 2, 0]} castShadow>
+      <boxGeometry args={[span, LAYOUT_WALL_H, 0.16]} />
+      <meshStandardMaterial color="#aec4cc" transparent opacity={0.22} roughness={0.1} metalness={0.1} />
     </mesh>
   );
 }
@@ -347,6 +348,8 @@ function CategoryPiece({ f, finish }: { f: ExtractedFurniture; finish: string })
       return <GlassPanel w={w} h={h} />;
     case "planter":
       return <Planter w={w} h={h} />;
+    case "mullion":
+      return null; // glazing framing — drawn by the glass panels, not as standalone objects
     default:
       return <LowBox w={w} h={h} />;
   }
@@ -377,7 +380,7 @@ function LayoutWalls({ layout, w }: { layout: ExtractedLayout; w: World }) {
         const glass = s.type === "glass";
         const half = s.type === "half_drywall";
         const core = s.type === "core";
-        const h = half ? WALL_H * 0.5 : WALL_H;
+        const h = half ? LAYOUT_WALL_H * 0.45 : LAYOUT_WALL_H;
         const thickness = glass ? 0.16 : core ? 0.7 : 0.45;
         return (
           <mesh key={i} position={[s.x, h / 2, s.z]} rotation-y={s.angle} castShadow>

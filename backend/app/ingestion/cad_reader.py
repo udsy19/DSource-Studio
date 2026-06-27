@@ -41,7 +41,8 @@ _CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("sofa", ("sofa", "lounge", "settee", "recliner", "banquette")),
     ("stool", ("barstool", "stool")),
     ("tv", ("flat_screen", "tv", "screen")),
-    ("panel", ("system panel", "glazed", "mullion")),
+    ("mullion", ("mullion",)),  # glazing framing — not a glass panel; kept out of the panel count
+    ("panel", ("system panel", "glazed")),
     ("storage", ("cabinet", "cupbd", "storage", "credenza", "locker", "drawers")),
     ("planter", ("planter", "plant")),
     ("door", ("door",)),

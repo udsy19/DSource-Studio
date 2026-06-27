@@ -42,6 +42,7 @@ const FURN: Record<FurnitureCategory, string> = {
   panel: "--furn-storage",
   tv: "--furn-storage",
   planter: "--furn-green",
+  mullion: "--furn-other",
   other: "--furn-other",
 };
 
@@ -166,8 +167,9 @@ function LayoutPlan({ layout }: { layout: ExtractedLayout }) {
           );
         })}
 
-        {/* furniture footprints — rect at (x,y) by (w,h), rotated about its centre */}
-        {layout.furniture.map((f, i) => {
+        {/* furniture footprints — rect at (x,y) by (w,h), rotated about its centre.
+            Mullions (glazing framing) are drawn by the glass panels, not as separate footprints. */}
+        {layout.furniture.filter((f) => f.category !== "mullion").map((f, i) => {
           const cx = view.fx(f.x + f.w / 2);
           const cy = view.fy(f.y + f.h / 2);
           const color = `var(${FURN[f.category] ?? "--furn-other"})`;

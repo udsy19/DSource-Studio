@@ -205,6 +205,7 @@ export type FurnitureCategory =
   | "storage"
   | "planter"
   | "panel"
+  | "mullion"
   | "other";
 
 export interface ExtractedWall {
