@@ -19,6 +19,7 @@ from ..ingest import service
 from ..models import Product
 from ..pricing.engine import DealerRates, QuoteLineInput, compute_quote
 from ..testfit.bom import sku_demand
+from ..testfit.elements import extract_elements
 from ..testfit.layout import ProgramSpec, TestFit, WorkstationSpec, generate_mixed_layout
 from ..testfit.payloads import plan_payload, testfit_payload
 from ..wellbeing.score import score_wellbeing
@@ -139,6 +140,7 @@ async def generate_testfit(
     return {
         "plan": plan_payload(plan),
         "testfit": testfit_payload(fit),
+        "elements": extract_elements(plan, fit),
         "wellbeing": _wellbeing_payload(plan, fit, density_rsf_per_person),
         "bom": None,
         "quote": None,
@@ -185,6 +187,7 @@ async def testfit_to_quote(
     return {
         "plan": plan_payload(plan),
         "testfit": fit_payload,
+        "elements": extract_elements(plan, fit),
         "wellbeing": _wellbeing_payload(plan, fit, density_rsf_per_person),
         "bom": bom,
         "quote": quote_payload,
