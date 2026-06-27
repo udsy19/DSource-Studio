@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { downloadReport, downloadTakeoff, generateAlternatives } from "../api";
+import { downloadIfc, downloadReport, downloadTakeoff, generateAlternatives } from "../api";
 import { Button, Callout, Card, Eyebrow, Field, Stat } from "../design/ui";
 import type { AlternativesResponse, Metrics, ReportProject } from "../types";
 import Dropzone from "./Dropzone";
@@ -118,6 +118,13 @@ export default function Deliverables() {
                 onClick={() => file && download(() => downloadTakeoff(file))}
               >
                 Quantity takeoff (Excel)
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={!file}
+                onClick={() => file && download(() => downloadIfc(file))}
+              >
+                BIM model (IFC)
               </Button>
             </div>
             <p className="ds-hint" style={{ marginTop: 10 }}>

@@ -117,6 +117,13 @@ export async function downloadTakeoff(file: File, opts?: AltOpts): Promise<void>
   );
 }
 
+export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
+  await downloadBlob(
+    await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),
+    "model.ifc",
+  );
+}
+
 export async function downloadReport(reportData: {
   project: import("./types").ReportProject;
   plan: import("./types").Plan;
