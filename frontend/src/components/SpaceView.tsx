@@ -131,6 +131,11 @@ function GltfPiece({ url }: { url: string }) {
 }
 
 const PEDESTAL = "#2b2a27";
+/* a real-office material palette — desks/tables read as wood, legs as metal; the "Finish" swatch
+   drives only the soft goods (chair + sofa upholstery), so swapping it doesn't paint the room. */
+const DESK_TOP = "#c7a679"; // warm oak laminate
+const LEG = "#54524b"; // soft dark metal
+const WOOD = "#a97d4a"; // conference/table wood
 
 /* A real .glb chair can be dropped in here (e.g. "/models/chair.glb") to render real geometry.
    Empty by default = procedural chair: a single high-poly model cloned across hundreds of seats
@@ -180,8 +185,8 @@ function Chair({ uph }: { uph: string }) {
   );
 }
 
-/* desk: laminate top on two leg panels */
-function Desk({ color, w, h }: { color: string; w: number; h: number }) {
+/* desk: warm laminate top on two dark metal leg panels + a small monitor */
+function Desk({ w, h }: { w: number; h: number }) {
   const depth = Math.min(h * 0.55, 2.6);
   const topW = Math.min(w * 0.95, 5.6);
   const lx = topW / 2 - 0.2;
@@ -189,29 +194,33 @@ function Desk({ color, w, h }: { color: string; w: number; h: number }) {
     <group>
       <mesh position={[0, 2.4, 0]} castShadow receiveShadow>
         <boxGeometry args={[topW, 0.12, depth]} />
-        <meshStandardMaterial color={color} roughness={0.45} />
+        <meshStandardMaterial color={DESK_TOP} roughness={0.5} />
       </mesh>
       {[-lx, lx].map((x, i) => (
         <mesh key={i} position={[x, 1.2, 0]} castShadow>
           <boxGeometry args={[0.12, 2.4, depth * 0.82]} />
-          <meshStandardMaterial color={color} roughness={0.5} />
+          <meshStandardMaterial color={LEG} roughness={0.45} metalness={0.3} />
         </mesh>
       ))}
+      <mesh position={[0, 3.35, -depth * 0.28]} castShadow>
+        <boxGeometry args={[1.7, 1.0, 0.08]} />
+        <meshStandardMaterial color="#23211d" roughness={0.3} />
+      </mesh>
     </group>
   );
 }
 
-/* conference table: top on a central plinth */
-function Table({ color, w, h }: { color: string; w: number; h: number }) {
+/* conference table: wood top on a central metal plinth */
+function Table({ w, h }: { w: number; h: number }) {
   return (
     <group>
       <mesh position={[0, 2.4, 0]} castShadow receiveShadow>
         <boxGeometry args={[w * 0.5, 0.16, h * 0.42]} />
-        <meshStandardMaterial color={color} roughness={0.35} />
+        <meshStandardMaterial color={WOOD} roughness={0.35} />
       </mesh>
       <mesh position={[0, 1.2, 0]} castShadow>
         <boxGeometry args={[w * 0.18, 2.3, h * 0.12]} />
-        <meshStandardMaterial color={color} roughness={0.5} />
+        <meshStandardMaterial color={LEG} roughness={0.5} metalness={0.3} />
       </mesh>
     </group>
   );
@@ -239,7 +248,7 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
     case "workstation":
       return (
         <group>
-          <Desk color={finish} w={w} h={h} />
+          <Desk w={w} h={h} />
           <group position={[0, 0, h * 0.3]}>
             <Chair uph={finish} />
           </group>
@@ -250,7 +259,7 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
         <group>
           <RoomShell w={w} h={h} color="#7d8a86" />
           <group position={[0, 0, -h * 0.12]}>
-            <Desk color={finish} w={w * 0.62} h={h * 0.5} />
+            <Desk w={w * 0.62} h={h * 0.5} />
           </group>
           <group position={[0, 0, h * 0.12]}>
             <Chair uph={finish} />
@@ -261,7 +270,7 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
       return (
         <group>
           <RoomShell w={w} h={h} color="#7d8a86" />
-          <Table color={finish} w={w} h={h} />
+          <Table w={w} h={h} />
           {[-1, 1].map((sx) =>
             [-1, 1].map((sz) => (
               <group key={`${sx}${sz}`} position={[(sx * w) / 4.5, 0, (sz * h) / 4.5]}>
@@ -295,10 +304,12 @@ function Scene({ plan, instances, floor, finish }: {
   return (
     <>
       <color attach="background" args={["#f4f1ea"]} />
-      <ambientLight intensity={0.65} />
+      <ambientLight intensity={0.85} />
+      <hemisphereLight args={["#fff7ec", "#d8d2c4", 0.55]} />
       <directionalLight
         position={[w.size, w.size * 1.4, w.size * 0.6]}
-        intensity={1.15}
+        intensity={1.25}
+        color="#fff4e6"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
