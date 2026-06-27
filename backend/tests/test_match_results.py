@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import Product
-from app.routers.match import MatchBands, _results
+from app.matching import MatchBands, format_hits
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_enrichment_material_and_dict_exposed(db):
     enrichment = {"primary_material": {"value": "solid sheesham", "confidence": 0.7, "source": "description"}}
     product_id = _add(db, {"enrichment": enrichment})
 
-    result = _results(db, [(product_id, 0.9)], BANDS)[0]
+    result = format_hits(db, [(product_id, 0.9)], BANDS)[0]
 
     assert result["material"] == "solid sheesham"
     assert result["enrichment"] == enrichment
@@ -43,7 +43,7 @@ def test_enrichment_material_and_dict_exposed(db):
 
 def test_unmappable_material_has_no_maintenance(db):
     product_id = _add(db, {"material_attrs": {"primary_material": "aerogel"}})
-    result = _results(db, [(product_id, 0.9)], BANDS)[0]
+    result = format_hits(db, [(product_id, 0.9)], BANDS)[0]
     assert result["material"] == "aerogel"
     assert result["maintenance"] is None  # unknown family -> no fabricated profile
 
@@ -51,7 +51,7 @@ def test_unmappable_material_has_no_maintenance(db):
 def test_material_attrs_fallback_no_enrichment(db):
     product_id = _add(db, {"material_attrs": {"primary_material": "Mesh"}})
 
-    result = _results(db, [(product_id, 0.9)], BANDS)[0]
+    result = format_hits(db, [(product_id, 0.9)], BANDS)[0]
 
     assert result["material"] == "Mesh"
     assert result["enrichment"] is None
@@ -60,7 +60,7 @@ def test_material_attrs_fallback_no_enrichment(db):
 def test_no_provenance_yields_none(db):
     product_id = _add(db, None)
 
-    result = _results(db, [(product_id, 0.9)], BANDS)[0]
+    result = format_hits(db, [(product_id, 0.9)], BANDS)[0]
 
     assert result["material"] is None
     assert result["enrichment"] is None

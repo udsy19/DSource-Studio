@@ -1,4 +1,4 @@
-from app.routers.match import MatchBands, band
+from app.matching import MatchBands, band
 
 BANDS = MatchBands(exact=0.9, close=0.78)
 

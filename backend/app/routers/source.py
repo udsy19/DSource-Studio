@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..embeddings.catalog_index import get_embedder, get_index
-from .match import _bands, _results
+from ..matching import bands_for, format_hits
 
 router = APIRouter(prefix="/api/source", tags=["source"])
 
@@ -66,10 +66,10 @@ def build_india_source(counts: dict[str, int], match: Callable[[str], dict | Non
 
 @router.post("/india")
 def source_india(req: SourceRequest, db: Session = Depends(get_db)) -> dict:
-    embedder, index, bands = get_embedder(), get_index(), _bands(by_image=False)
+    embedder, index, bands = get_embedder(), get_index(), bands_for(by_image=False)
 
     def match(query: str) -> dict | None:
         hits = index.query(embedder.embed_text(query), k=1)
-        return _results(db, hits, bands)[0] if hits else None
+        return format_hits(db, hits, bands)[0] if hits else None
 
     return build_india_source(req.counts, match)
