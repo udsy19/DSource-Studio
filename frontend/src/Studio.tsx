@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { cadGeometry, cadSvg, generateTestFit, inr, num, sourceIndia } from "./api";
+import {
+  cadGeometry,
+  cadSvg,
+  downloadIfc,
+  downloadReport,
+  downloadTakeoff,
+  generateAlternatives,
+  generateTestFit,
+  inr,
+  num,
+  sourceIndia,
+} from "./api";
 import { Cad3D, CadSvg } from "./components/CadViewer";
 import Dropzone from "./components/Dropzone";
 import PlanCanvas from "./components/PlanCanvas";
@@ -21,12 +32,15 @@ export default function Studio() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<"plan" | "space">("plan");
+  const [file, setFile] = useState<File | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   async function handle(file: File) {
     setBusy(true);
     setErr(null);
     setCad(null);
     setSource(null);
+    setFile(file);
     try {
       // Render the user's ACTUAL drawing (CAD svg + geometry) AND run the analysis (test-fit).
       const [tf, svg, geo] = await Promise.all([
@@ -51,6 +65,30 @@ export default function Studio() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function runExport(kind: string, fn: () => Promise<void>) {
+    if (!file) return;
+    setErr(null);
+    setExporting(kind);
+    try {
+      await fn();
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function exportReport() {
+    if (!file) return;
+    // The PDF report compares three fitted options; generate them, then render the report.
+    const alts = await generateAlternatives(file);
+    await downloadReport({
+      project: { client: "", building: file.name.replace(/\.(dxf|dwg)$/i, ""), style: "Modern", floor: "" },
+      plan: alts.plan,
+      alternatives: alts.alternatives,
+    });
   }
 
   const tf = res?.testfit;
@@ -202,6 +240,41 @@ export default function Studio() {
                 </div>
               </>
             )}
+
+            <hr className="ds-rule" />
+            <div className="exports">
+              <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
+              <div className="export-actions">
+                <button
+                  className="export-btn export-btn--primary"
+                  onClick={() => runExport("report", exportReport)}
+                  disabled={!!exporting}
+                >
+                  <span className="export-btn-label">Space-planning report</span>
+                  <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF · 3 options"}</span>
+                </button>
+                <button
+                  className="export-btn"
+                  onClick={() => runExport("takeoff", () => downloadTakeoff(file!))}
+                  disabled={!!exporting}
+                >
+                  <span className="export-btn-label">Quantity takeoff</span>
+                  <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · BOM"}</span>
+                </button>
+                <button
+                  className="export-btn"
+                  onClick={() => runExport("ifc", () => downloadIfc(file!))}
+                  disabled={!!exporting}
+                >
+                  <span className="export-btn-label">BIM model</span>
+                  <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
+                </button>
+              </div>
+              <p className="disclaim" style={{ marginTop: 14 }}>
+                The report compares three fitted options; the takeoff prices every line against the
+                real catalog (real vs. estimated flagged); the IFC opens in any BIM tool.
+              </p>
+            </div>
           </>
         )}
       </aside>
