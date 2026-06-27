@@ -12,8 +12,8 @@ from .ingest.sif import parse_sif
 from .procurement.models import seed_vendors
 from .realdata import apply_coop_hmi_band, ingest_hm_pricebooks
 from .routers import (
-    alternatives, brief, cad, catalog, coop, floorplan, gsa, ingest, match, procurement,
-    projects, quote, render, report, source, takeoff, testfit, wellcatalog,
+    alternatives, brief, cad, catalog, coop, floorplan, floorplan_raster, gsa, ifc, ingest,
+    match, procurement, projects, quote, render, report, source, takeoff, testfit, wellcatalog,
 )
 from .seed import seed
 from .wellcatalog.seed import seed_certs
@@ -90,6 +90,8 @@ app.include_router(testfit.router)    # Phase 2: generative test-fit (workstatio
 app.include_router(alternatives.router)  # Qbiq: 3 test-fit alternatives + space metrics
 app.include_router(takeoff.router)       # Qbiq: quantity-takeoff Excel (BOM) export
 app.include_router(report.router)        # Qbiq: styled multi-page space-planning PDF report
+app.include_router(ifc.router)           # Qbiq: IFC4/BIM export (open-standard editable model)
+app.include_router(floorplan_raster.router)  # Qbiq: raster/PDF floor-plate ingest (JPG/PNG/PDF)
 app.include_router(render.router)     # AI photoreal render proxy (needs provider key)
 app.include_router(brief.router)       # Studio: HQ brief → program spec translation
 app.include_router(wellcatalog.router) # Studio: WELL-ranked catalog

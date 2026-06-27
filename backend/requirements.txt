@@ -16,8 +16,11 @@ playwright==1.49.1
 ezdxf==1.4.4
 shapely==2.1.2
 # Qbiq deliverables: reportlab = styled multi-page space-planning PDF report (openpyxl above
-# drives the quantity-takeoff Excel export).
+# drives the quantity-takeoff Excel export); ifcopenshell = IFC4/BIM authoring (the open-standard
+# "editable Revit" deliverable); opencv = classical-CV raster/PDF floor-plate ingestion.
 reportlab==5.0.0
+ifcopenshell==0.8.5
+opencv-python-headless==4.13.0.92
 # AI render proxy (outbound call to the configured image provider)
 httpx==0.28.1
 # Phase 1 catalog + embeddings (free/local-first). curl_cffi = WAF-robust harvest client
