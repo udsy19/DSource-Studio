@@ -15,6 +15,9 @@ playwright==1.49.1
 # Phase 1 floor-plate ingestion: ezdxf = DXF parsing, shapely = boundary/area geometry.
 ezdxf==1.4.4
 shapely==2.1.2
+# Qbiq deliverables: reportlab = styled multi-page space-planning PDF report (openpyxl above
+# drives the quantity-takeoff Excel export).
+reportlab==5.0.0
 # AI render proxy (outbound call to the configured image provider)
 httpx==0.28.1
 # Phase 1 catalog + embeddings (free/local-first). curl_cffi = WAF-robust harvest client

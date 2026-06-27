@@ -19,8 +19,9 @@ from app.database import Base
 from app.floorplan.dxf_ingest import ingest_dxf
 from app.ingest import service
 from app.ingest.sif import parse_sif
-from app.routers.testfit import _build_bom_and_quote, _sku_demand
+from app.routers.testfit import _build_bom_and_quote
 from app.seed import seed
+from app.testfit.bom import sku_demand
 from app.testfit.layout import ProgramSpec, WorkstationSpec, generate_mixed_layout
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,7 +88,7 @@ def _seeded_session():
 
 def test_bom_has_multiple_sku_types_and_prices_out():
     _plan, _spec, fit = _fit()
-    demand = _sku_demand(fit)
+    demand = sku_demand(fit)
     # workstation desk + chair (chair now maps to the REAL Aeron AER1), office desk,
     # meeting table — multiple distinct SKU types across the layout.
     assert "SC-OLOGY-RECT" in demand and "AER1" in demand   # desk (synthetic) + real chair
