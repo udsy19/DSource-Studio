@@ -20,36 +20,10 @@ from ..models import Product
 from ..pricing.engine import DealerRates, QuoteLineInput, compute_quote
 from ..testfit.bom import sku_demand
 from ..testfit.layout import ProgramSpec, TestFit, WorkstationSpec, generate_mixed_layout
+from ..testfit.payloads import plan_payload, testfit_payload
 from ..wellbeing.score import score_wellbeing
 
 router = APIRouter(prefix="/api/testfit", tags=["testfit"])
-
-
-def _plan_payload(plan: PlanModel) -> dict:
-    return {
-        "boundary": plan.boundary,
-        "cores": plan.cores,
-        "columns": plan.columns,
-        "gross_area_sf": plan.gross_area_sf,
-        "usable_area_sf": plan.usable_area_sf,
-        "units": plan.units,
-    }
-
-
-def _testfit_payload(fit: TestFit) -> dict:
-    return {
-        "instances": [
-            {"type": i.type, "x": i.x, "y": i.y, "w": i.w, "h": i.h, "rotation": i.rotation}
-            for i in fit.instances
-        ],
-        "workstation_count": fit.workstation_count,
-        "office_count": fit.office_count,
-        "meeting_count": fit.meeting_count,
-        "collab_count": fit.collab_count,
-        "placeable_area_sf": fit.placeable_area_sf,
-        "program": fit.program,
-        "notes": fit.notes,
-    }
 
 
 def _build_bom_and_quote(db: Session, fit: TestFit):
@@ -163,8 +137,8 @@ async def generate_testfit(
     fit = generate_mixed_layout(plan, spec, program)
 
     return {
-        "plan": _plan_payload(plan),
-        "testfit": _testfit_payload(fit),
+        "plan": plan_payload(plan),
+        "testfit": testfit_payload(fit),
         "wellbeing": _wellbeing_payload(plan, fit, density_rsf_per_person),
         "bom": None,
         "quote": None,
@@ -202,15 +176,15 @@ async def testfit_to_quote(
         raise HTTPException(status_code=422, detail="Test-fit placed no instances.")
 
     bom, quote_payload, skipped = _build_bom_and_quote(db, fit)
-    testfit_payload = _testfit_payload(fit)
+    fit_payload = testfit_payload(fit)
     if skipped:
-        testfit_payload["notes"] = list(testfit_payload["notes"]) + [
+        fit_payload["notes"] = list(fit_payload["notes"]) + [
             f"Skipped catalog SKUs not found: {skipped}."
         ]
 
     return {
-        "plan": _plan_payload(plan),
-        "testfit": testfit_payload,
+        "plan": plan_payload(plan),
+        "testfit": fit_payload,
         "wellbeing": _wellbeing_payload(plan, fit, density_rsf_per_person),
         "bom": bom,
         "quote": quote_payload,

@@ -11,8 +11,8 @@ The three flavours, derived by scaling the base program:
   C — Enclosed   : more private offices + meeting rooms, lower density, less collab.
 
 `plan` and each alternative's `testfit` use the exact dict shapes the /api/testfit endpoint
-returns. Those builders are replicated here (not imported) so this module — and the metrics
-tests that exercise it — stay free of the testfit router's database/catalog imports.
+returns, via the shared `payloads` builders (DB-free) so this module — and the metrics tests
+that exercise it — stay free of the testfit router's database/catalog imports.
 """
 
 from __future__ import annotations
@@ -20,38 +20,11 @@ from __future__ import annotations
 from ..floorplan.dxf_ingest import PlanModel
 from .layout import (
     ProgramSpec,
-    TestFit,
     WorkstationSpec,
     generate_mixed_layout,
 )
 from .metrics import compute_metrics
-
-
-def _plan_payload(plan: PlanModel) -> dict:
-    return {
-        "boundary": plan.boundary,
-        "cores": plan.cores,
-        "columns": plan.columns,
-        "gross_area_sf": plan.gross_area_sf,
-        "usable_area_sf": plan.usable_area_sf,
-        "units": plan.units,
-    }
-
-
-def _testfit_payload(fit: TestFit) -> dict:
-    return {
-        "instances": [
-            {"type": i.type, "x": i.x, "y": i.y, "w": i.w, "h": i.h, "rotation": i.rotation}
-            for i in fit.instances
-        ],
-        "workstation_count": fit.workstation_count,
-        "office_count": fit.office_count,
-        "meeting_count": fit.meeting_count,
-        "collab_count": fit.collab_count,
-        "placeable_area_sf": fit.placeable_area_sf,
-        "program": fit.program,
-        "notes": fit.notes,
-    }
+from .payloads import plan_payload, testfit_payload
 
 
 def _variants(base: ProgramSpec) -> list[tuple[str, ProgramSpec, WorkstationSpec]]:
@@ -105,7 +78,7 @@ def generate_alternatives(
         fit = generate_mixed_layout(plan, spec, prog)
         alternatives.append({
             "id": alt_id,
-            "testfit": _testfit_payload(fit),
+            "testfit": testfit_payload(fit),
             "metrics": compute_metrics(plan, fit),
         })
-    return {"plan": _plan_payload(plan), "alternatives": alternatives}
+    return {"plan": plan_payload(plan), "alternatives": alternatives}
