@@ -90,24 +90,19 @@ def _takeoff_furniture(layout: ExtractedLayout) -> list[FurnitureItem]:
 
 
 def _assign_rooms(layout: ExtractedLayout) -> tuple[dict[int, str], bool]:
-    """Map each takeoff-furniture index to a Room ID by point-in-polygon on the item's CENTER.
-    Returns (index -> room id, most_rooms_unpolygoned). Items in no room map to "—"."""
-    polys = [
-        (room.id, Polygon(room.polygon))
-        for room in layout.rooms
-        if len(room.polygon) >= 3
-    ]
+    """Map each takeoff-furniture index to its Room ID. The CAD reader tags every item with
+    `room_id` (by boundary where it closes, else nearest room); trust it when present and fall
+    back to point-in-polygon otherwise. Returns (index -> room id, most_rooms_unpolygoned)."""
+    polys = [(room.id, Polygon(room.polygon)) for room in layout.rooms if len(room.polygon) >= 3]
     most_unpolygoned = bool(layout.rooms) and len(polys) < len(layout.rooms) / 2
 
     assignment: dict[int, str] = {}
     for idx, f in enumerate(_takeoff_furniture(layout)):
+        if f.room_id:
+            assignment[idx] = f.room_id
+            continue
         center = Point(f.x + f.w / 2.0, f.y + f.h / 2.0)
-        room_id = "—"
-        for rid, poly in polys:
-            if poly.contains(center):
-                room_id = rid
-                break
-        assignment[idx] = room_id
+        assignment[idx] = next((rid for rid, poly in polys if poly.contains(center)), "—")
     return assignment, most_unpolygoned
 
 

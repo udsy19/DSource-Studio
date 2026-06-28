@@ -44,6 +44,7 @@ class FurnitureItem(BaseModel):
     w: float
     h: float
     rotation: float  # degrees
+    room_id: str | None = None  # the room this item belongs to (by boundary or nearest centre)
 
 
 class ExtractedLayout(BaseModel):

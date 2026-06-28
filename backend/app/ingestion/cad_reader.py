@@ -19,8 +19,8 @@ from collections import Counter
 
 import ezdxf.bbox
 import ezdxf.recover
-from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import polygonize, unary_union
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import unary_union
 
 from ..floorplan.dxf_ingest import (
     _INSUNITS_TO_FEET,
@@ -95,15 +95,17 @@ def read_cad(content: bytes, filename: str) -> ExtractedLayout:
 
     furniture, doors = _read_inserts(msp, lf)
     walls, wall_lines = _read_walls(msp, lf)
-    rooms, room_note = _read_rooms(wall_lines, msp, lf)
+    bounds = _bounds(furniture, walls, doors)
+
+    panels = [f for f in furniture if f.category in ("panel", "mullion")]
+    rooms, room_note = _read_rooms(wall_lines, panels, doors, bounds, msp, lf)
+    _assign_rooms(furniture, rooms)
     if room_note:
         notes.append(room_note)
 
     inventory: dict[str, int] = dict(Counter(f.category for f in furniture))
     if doors:
         inventory["door"] = len(doors)
-
-    bounds = _bounds(furniture, walls, doors)
 
     notes.append(
         f"Read deterministically from CAD layers/blocks; geometry scaled to feet from "
@@ -243,54 +245,112 @@ def _classify_wall(layer: str) -> str:
     return "unknown"
 
 
-def _read_rooms(wall_lines: list[LineString], msp, lf: float) -> tuple[list[Room], str | None]:
-    labels = _read_room_labels(msp, lf)
-    if not wall_lines:
-        return [], "No wall geometry to polygonize — rooms not recovered."
+_WALL_BUF = 0.6  # ft — half-thickness to thicken boundaries into a solid mask (bridges double lines)
 
-    # unary_union NODES the wall lines at their intersections; polygonize needs noded input to
-    # close cells. Without it gappy/overlapping CAD lines yield no rooms.
-    noded = unary_union(wall_lines)
-    candidates = [
-        p for p in polygonize(noded)
-        if _MIN_ROOM_SF <= p.area <= _MAX_ROOM_SF
-    ]
+
+def _seg(cx: float, cy: float, length: float, ang: float) -> LineString:
+    dx, dy = math.cos(ang) * length / 2, math.sin(ang) * length / 2
+    return LineString([(cx - dx, cy - dy), (cx + dx, cy + dy)])
+
+
+def _panel_segment(p: FurnitureItem) -> LineString:
+    """A glass partition / mullion as a boundary segment along its long axis."""
+    cx, cy = p.x + p.w / 2, p.y + p.h / 2
+    length, axis = (p.w, 0.0) if p.w >= p.h else (p.h, math.pi / 2)
+    return _seg(cx, cy, length, math.radians(p.rotation) + axis)
+
+
+def _door_segment(d: Door) -> LineString:
+    """A plug across a door opening, so rooms don't leak through doorways."""
+    return _seg(d.x, d.y, max(d.width, 2.0), math.radians(d.rotation))
+
+
+def _ring(poly: Polygon) -> list[tuple[float, float]]:
+    return [(round(x, 2), round(y, 2)) for x, y in poly.exterior.coords]
+
+
+def _read_rooms(
+    wall_lines: list[LineString], panels: list[FurnitureItem], doors: list[Door],
+    bounds: tuple[float, float, float, float], msp, lf: float,
+) -> tuple[list[Room], str | None]:
+    labels = _read_room_labels(msp, lf)
+    boundaries = list(wall_lines)
+    boundaries += [_panel_segment(p) for p in panels]  # glass-walled rooms close on the partitions
+    boundaries += [_door_segment(d) for d in doors]  # plug doorways
+    boundaries = [b for b in boundaries if b.length > 0.1]
+
+    cells: list[Polygon] = []
+    if boundaries:
+        # CAD walls are double lines, so polygonizing them finds wall cavities, not rooms. Instead
+        # thicken every boundary into a solid mask and subtract from the plate — the negative space
+        # IS the rooms. This bridges the double lines and (with door plugs) separates partitioned
+        # rooms. Far more robust than polygonize() on gappy real-world linework.
+        minx, miny, maxx, maxy = bounds
+        plate = box(minx, miny, maxx, maxy)
+        mask = unary_union([b.buffer(_WALL_BUF, cap_style=2) for b in boundaries])
+        region = plate.difference(mask)
+        raw = list(region.geoms) if region.geom_type == "MultiPolygon" else [region]
+        edge = plate.exterior
+        cells = [
+            c for c in raw
+            if not c.is_empty and _MIN_ROOM_SF <= c.area <= _MAX_ROOM_SF
+            and not c.exterior.intersects(edge)  # the exterior gap touches the plate edge
+        ]
 
     rooms: list[Room] = []
-    used_labels: set[int] = set()
-    next_id = 1
-    for poly in candidates:
-        label, area_sf = _label_for_polygon(poly, labels, used_labels)
-        rooms.append(Room(
-            id=f"R-{next_id}",
-            label=label,
-            area_sf=area_sf,
-            polygon=[(round(x, 2), round(y, 2)) for x, y in poly.exterior.coords],
-            center=(round(poly.centroid.x, 2), round(poly.centroid.y, 2)),
-            type=_classify_room(label),
-        ))
-        next_id += 1
+    used: set[int] = set()
+    nid = 1
+    for (lx, ly, label, area_sf) in labels:
+        pt = Point(lx, ly)
+        idx = next((i for i, c in enumerate(cells) if i not in used and c.contains(pt)), None)
+        if idx is not None:
+            used.add(idx)
+            c = cells[idx]
+            rooms.append(Room(
+                id=f"R-{nid}", label=label, area_sf=area_sf or round(c.area, 1),
+                polygon=_ring(c), center=(round(c.centroid.x, 2), round(c.centroid.y, 2)),
+                type=_classify_room(label),
+            ))
+        else:
+            rooms.append(Room(
+                id=f"R-{nid}", label=label, area_sf=area_sf, polygon=[],
+                center=(round(lx, 2), round(ly, 2)), type=_classify_room(label),
+            ))
+        nid += 1
 
-    # Surface any room label that no polygon enclosed (gappy partitions don't close every cell),
-    # so the room list isn't blind to a space we positively read from the drawing.
-    unplaced = [labels[i] for i in range(len(labels)) if i not in used_labels]
-    for (lx, ly, label, area_sf) in unplaced:
-        rooms.append(Room(
-            id=f"R-{next_id}", label=label, area_sf=area_sf,
-            polygon=[], center=(round(lx, 2), round(ly, 2)), type=_classify_room(label),
-        ))
-        next_id += 1
+    # enclosed cells with no label that are clearly rooms (e.g. unlabeled offices)
+    for i, c in enumerate(cells):
+        if i not in used and c.area >= 60:
+            rooms.append(Room(
+                id=f"R-{nid}", label=None, area_sf=round(c.area, 1),
+                polygon=_ring(c), center=(round(c.centroid.x, 2), round(c.centroid.y, 2)),
+                type="unknown",
+            ))
+            nid += 1
 
-    note: str | None = None
-    if unplaced:
+    labeled = sum(1 for r in rooms if r.label)
+    closed = sum(1 for r in rooms if r.polygon)
+    note = None
+    if labeled and closed < labeled:
         note = (
-            f"Polygonized {len(candidates)} room cell(s) from wall lines but {len(unplaced)} "
-            "labeled room(s) had no closed boundary (gappy partitions) — emitted with empty "
-            "polygons. Rooms need manual confirmation."
+            f"Recovered {closed} closed room boundary(ies); {labeled - closed} labeled room(s) "
+            "stayed open (gappy partitions) — kept as label-only. Furniture is assigned to the "
+            "nearest room. Confirm boundaries before fabrication."
         )
-    elif not candidates:
-        note = "Wall lines did not polygonize into closed rooms (gappy partitions)."
     return rooms, note
+
+
+def _assign_rooms(furniture: list[FurnitureItem], rooms: list[Room]) -> None:
+    """Tag each furniture item with its room — by boundary containment where a polygon exists,
+    else by nearest room centre — so the per-room takeoff is populated even with open boundaries."""
+    polys = [(r.id, Polygon(r.polygon)) for r in rooms if len(r.polygon) >= 3]
+    centers = [(r.id, r.center) for r in rooms if r.center]
+    for f in furniture:
+        cx, cy = f.x + f.w / 2, f.y + f.h / 2
+        rid = next((rid for rid, poly in polys if poly.contains(Point(cx, cy))), None)
+        if rid is None and centers:
+            rid = min(centers, key=lambda rc: (rc[1][0] - cx) ** 2 + (rc[1][1] - cy) ** 2)[0]
+        f.room_id = rid
 
 
 def _read_room_labels(msp, lf: float) -> list[tuple[float, float, str | None, float | None]]:
@@ -331,20 +391,6 @@ def _nearest_name(ax: float, ay: float, name_texts: list[tuple[float, float, str
     if best is not None and best[0] <= 36.0:
         return best[1]
     return None
-
-
-def _label_for_polygon(
-    poly: Polygon,
-    labels: list[tuple[float, float, str | None, float | None]],
-    used: set[int],
-) -> tuple[str | None, float | None]:
-    for i, (lx, ly, name, area_sf) in enumerate(labels):
-        if i in used:
-            continue
-        if poly.contains(Point(lx, ly)):
-            used.add(i)
-            return name, area_sf
-    return None, None
 
 
 def _classify_room(label: str | None) -> str:
