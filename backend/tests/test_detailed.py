@@ -109,3 +109,42 @@ def test_is_deterministic():
         RoomRequest(type="phone_booth", count=2, placement="core"),
     ])
     assert generate_from_detailed(_plan(), program) == generate_from_detailed(_plan(), program)
+
+
+def test_locked_rooms_are_kept_and_not_doubled():
+    """Iterate loop: a pinned room stays at its exact coords and counts toward its type's total
+    (a locked office of a 3-office request yields 3, not 4)."""
+    program = DetailedProgram(rooms=[RoomRequest(type="office_exec", count=3, placement="window")])
+    plan = _plan()
+    base = generate_from_detailed(plan, program)["alternatives"][0]
+    offices = _instances_of(base, "private_office")
+    assert len(offices) == 3
+
+    pinned = [offices[0]]
+    iterated = generate_from_detailed(plan, program, locked=pinned)["alternatives"][0]
+    out_offices = _instances_of(iterated, "private_office")
+
+    assert len(out_offices) == 3  # locked counts toward the request, never doubles it
+    assert any(
+        abs(o["x"] - pinned[0]["x"]) < 1e-6 and abs(o["y"] - pinned[0]["y"]) < 1e-6
+        for o in out_offices
+    )
+
+
+def test_locked_room_footprint_blocks_overlap():
+    """A pinned room reserves its footprint — no other placed room overlaps it."""
+    program = DetailedProgram(rooms=[RoomRequest(type="office_small", count=5, placement="window")])
+    plan = _plan()
+    base = generate_from_detailed(plan, program)["alternatives"][0]
+    pinned = [_instances_of(base, "private_office")[0]]
+    pin_box = box(pinned[0]["x"], pinned[0]["y"],
+                  pinned[0]["x"] + pinned[0]["w"], pinned[0]["y"] + pinned[0]["h"])
+
+    iterated = generate_from_detailed(plan, program, locked=pinned)["alternatives"][0]
+    others = [
+        i for i in iterated["testfit"]["instances"]
+        if not (abs(i["x"] - pinned[0]["x"]) < 1e-6 and abs(i["y"] - pinned[0]["y"]) < 1e-6)
+    ]
+    for i in others:
+        ib = box(i["x"], i["y"], i["x"] + i["w"], i["y"] + i["h"])
+        assert pin_box.intersection(ib).area < 0.5  # no meaningful overlap with the pinned room

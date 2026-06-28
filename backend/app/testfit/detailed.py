@@ -96,12 +96,16 @@ def _place_rooms(
     columns: list,
     spec: WorkstationSpec,
     density_scale: float,
+    pre_occupied: list[Polygon] | None = None,
+    locked_by_instance: dict[str, int] | None = None,
 ):
-    """Place every requested room honouring placement, then return (instances, placed-by-type).
+    """Place every requested room honouring placement, then return (instances, occupied).
 
     Order: window rooms first (perimeter edge-march), then core rooms (interior packer), then
     flexible (perimeter, falling back to interior). `density_scale` < 1 drops a few rooms to make
     a sparser variant; > 1 is clamped to the request (never invents rooms beyond what was asked).
+    `pre_occupied` (locked-room footprints) is reserved so new rooms avoid it; `locked_by_instance`
+    reduces the request so a locked room counts toward its type's total instead of doubling it.
     """
     window: list[RoomSpec] = []
     core: list[RoomSpec] = []
@@ -112,8 +116,14 @@ def _place_rooms(
         bucket = {"window": window, "core": core, "flexible": flexible}[req.placement]
         bucket += [spec_room] * n
 
+    # A locked room of a given instance type already satisfies one requested room of that type.
+    remaining_locked = dict(locked_by_instance or {})
+    window = _drop_locked(window, remaining_locked)
+    core = _drop_locked(core, remaining_locked)
+    flexible = _drop_locked(flexible, remaining_locked)
+
     placed_rooms = []
-    occupied: list[Polygon] = []
+    occupied: list[Polygon] = list(pre_occupied or [])
 
     perimeter = place_perimeter_rooms(
         boundary_poly=usable, cores=cores, column_circles=columns, setback_ft=0.0,
@@ -144,8 +154,7 @@ def _place_rooms(
             placed_rooms += flex_int
 
     instances = [FurnitureInstance(r.type, r.x, r.y, r.w, r.h, r.rotation) for r in placed_rooms]
-    placed_by_type = _placed_by_catalog_key(program, placed_rooms, density_scale)
-    return instances, placed_by_type, occupied
+    return instances, occupied
 
 
 def _interior_region(usable: Polygon, cores, columns, occupied: list[Polygon]):
@@ -159,6 +168,18 @@ def _interior_region(usable: Polygon, cores, columns, occupied: list[Polygon]):
     for op in occupied:
         region = region.difference(op.buffer(eps))
     return region
+
+
+def _drop_locked(bucket: list[RoomSpec], remaining_locked: dict[str, int]) -> list[RoomSpec]:
+    """Drop specs already covered by a locked room of the same instance type (mutates the counter
+    so coverage is shared across window/core/flexible buckets, never double-spent)."""
+    out: list[RoomSpec] = []
+    for spec in bucket:
+        if remaining_locked.get(spec.type, 0) > 0:
+            remaining_locked[spec.type] -= 1
+        else:
+            out.append(spec)
+    return out
 
 
 def _subtract_placed(requested: list[RoomSpec], placed) -> list[RoomSpec]:
@@ -198,25 +219,38 @@ def _placed_by_catalog_key(program, placed, density_scale: float) -> dict[str, i
 
 
 def _build_testfit(
-    plan: PlanModel, program: DetailedProgram, spec: WorkstationSpec, density_scale: float
+    plan: PlanModel, program: DetailedProgram, spec: WorkstationSpec, density_scale: float,
+    locked: list[FurnitureInstance] | None = None,
 ) -> TestFit:
-    """One Detailed test-fit: explicit rooms (honouring placement) + a workstation field."""
+    """One Detailed test-fit: explicit rooms (honouring placement) + a workstation field.
+
+    `locked` instances (pinned from a prior version) are kept exactly: their footprints are
+    reserved, they count toward their type's requested total, and they appear in the output."""
     usable = _usable_boundary(plan, spec)
     requested = _requested_counts(program)
     if usable.is_empty or usable.area <= 0:
         return TestFit(workstation_count=0, placeable_area_sf=0.0,
                        notes=["No usable area after perimeter setback."])
 
+    locked = locked or []
+    locked_rooms = [i for i in locked if i.type != "workstation"]
+    locked_boxes = [box(i.x, i.y, i.x + i.w, i.y + i.h) for i in locked]
+    locked_by_instance: dict[str, int] = {}
+    for i in locked_rooms:
+        locked_by_instance[i.type] = locked_by_instance.get(i.type, 0) + 1
+
     cores = _cores(plan)
     columns = _column_circles(plan, spec)
-    room_instances, placed_by_type, occupied = _place_rooms(
-        program, usable, cores, columns, spec, density_scale
+    room_instances, occupied = _place_rooms(
+        program, usable, cores, columns, spec, density_scale,
+        pre_occupied=locked_boxes, locked_by_instance=locked_by_instance,
     )
+    placed_by_type = _placed_by_catalog_key(program, locked_rooms + room_instances, density_scale)
 
     region = _interior_region(usable, cores, columns, occupied)
     workstations = _place_workstation_field(region, spec)
 
-    instances = room_instances + workstations
+    instances = locked + room_instances + workstations
     office_count = sum(1 for i in instances if i.type == "private_office")
     meeting_count = sum(1 for i in instances if i.type == "meeting_room")
     # Both huddles (collaboration) and booths (phone_booth) are enclosed clusters, not desks.
@@ -267,14 +301,29 @@ _VARIANTS: list[tuple[str, float, float]] = [
 ]
 
 
-def generate_from_detailed(plan: PlanModel, program: DetailedProgram, n: int = 3) -> dict:
+def _locked_instances(locked: list[dict] | None) -> list[FurnitureInstance]:
+    """Parse pinned instances (from a prior version's payload) into FurnitureInstances."""
+    return [
+        FurnitureInstance(
+            type=i["type"], x=float(i["x"]), y=float(i["y"]),
+            w=float(i["w"]), h=float(i["h"]), rotation=int(i.get("rotation", 0)),
+        )
+        for i in (locked or [])
+    ]
+
+
+def generate_from_detailed(
+    plan: PlanModel, program: DetailedProgram, n: int = 3, locked: list[dict] | None = None
+) -> dict:
     """Place the explicit requested rooms honouring placement, then return `n` scored variants.
 
     Variants vary workstation density and (for C) how many of the requested rooms are kept, so the
-    three options trade enclosed-vs-open while never exceeding the requested room counts. Same
-    `AlternativesResult` dict shape as /api/generate and /api/testfit/alternatives.
+    three options trade enclosed-vs-open while never exceeding the requested room counts. `locked`
+    pins instances from a prior version — kept exactly while the rest re-places (the iterate loop).
+    Same `AlternativesResult` dict shape as /api/generate and /api/testfit/alternatives.
     """
     spec = _workstation_spec(program)
+    pinned = _locked_instances(locked)
     alternatives = []
     for alt_id, room_scale, desk_scale in _VARIANTS[:n]:
         variant_spec = WorkstationSpec(
@@ -284,7 +333,7 @@ def generate_from_detailed(plan: PlanModel, program: DetailedProgram, n: int = 3
             perimeter_setback_ft=spec.perimeter_setback_ft,
             column_clearance_ft=spec.column_clearance_ft,
         )
-        fit = _build_testfit(plan, program, variant_spec, room_scale)
+        fit = _build_testfit(plan, program, variant_spec, room_scale, locked=pinned)
         alternatives.append({
             "id": alt_id,
             "testfit": testfit_payload(fit),

@@ -16,10 +16,11 @@ Request: multipart/form-data with
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from ..floorplan.dxf_ingest import ingest_cad
 from ..testfit.detailed import DetailedProgram, generate_from_detailed
+from ..testfit.payloads import plan_from_payload
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
@@ -46,3 +47,17 @@ async def generate_detailed(
         raise HTTPException(status_code=422, detail=f"Could not parse CAD file: {exc}") from exc
 
     return generate_from_detailed(plan, detailed)
+
+
+class IterateRequest(BaseModel):
+    """Regenerate keeping pinned rooms — the iterate loop, working off the prior version's plan
+    (no CAD re-upload/re-ingest). `locked` are instances pinned from a prior version."""
+
+    plan: dict
+    program: DetailedProgram
+    locked: list[dict] = Field(default_factory=list)
+
+
+@router.post("/generate/detailed/iterate")
+def iterate_detailed(req: IterateRequest):
+    return generate_from_detailed(plan_from_payload(req.plan), req.program, locked=req.locked)
