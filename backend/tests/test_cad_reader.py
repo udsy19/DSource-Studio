@@ -61,6 +61,58 @@ def _synthetic_dxf() -> bytes:
     return text.getvalue().encode("utf-8")
 
 
+def _no_perimeter_dxf() -> bytes:
+    """Two short interior wall stubs that do NOT enclose anything — the safety net must add a
+    perimeter — plus two door blocks of different leaf width to exercise the door-width fix."""
+    doc = ezdxf.new(setup=True)
+    doc.header["$INSUNITS"] = 1  # inches
+    msp = doc.modelspace()
+
+    # Single-leaf door: leaf 36in along local x, swing 48in along local y.
+    single = doc.blocks.new(name="Door - Single - Solid")
+    single.add_line((0, 0), (36, 0))
+    single.add_line((0, 0), (0, 48))
+    # Double-leaf door: opening 72in along local x, same 48in swing depth.
+    double = doc.blocks.new(name="Door - Double - Glass")
+    double.add_line((0, 0), (72, 0))
+    double.add_line((0, 0), (0, 48))
+
+    msp.add_blockref("Door - Single - Solid", (200, 200), dxfattribs={"layer": "A-DOOR"})
+    msp.add_blockref("Door - Double - Glass", (400, 200),
+                     dxfattribs={"layer": "A-DOOR", "rotation": 90})
+
+    # Interior partitions only — no closed outer boundary.
+    msp.add_line((100, 100), (300, 100), dxfattribs={"layer": "I-WALL"})
+    msp.add_line((100, 300), (300, 300), dxfattribs={"layer": "I-WALL"})
+
+    text = io.StringIO()
+    doc.write(text)
+    return text.getvalue().encode("utf-8")
+
+
+def test_perimeter_synthesized_when_walls_do_not_enclose():
+    layout = read_cad(_no_perimeter_dxf(), "open.dxf")
+    perimeters = [w for w in layout.walls if w.type == "perimeter"]
+    assert len(perimeters) == 1
+    ring = perimeters[0].points
+    assert ring[0] == ring[-1] and len(ring) == 5  # a closed rectangle
+    assert any("perimeter" in n.lower() for n in layout.notes)
+
+
+def test_no_perimeter_added_when_walls_already_enclose():
+    # The synthetic fixture's walls form a closed rectangle, so nothing should be synthesized.
+    layout = read_cad(_synthetic_dxf(), "synthetic.dxf")
+    assert not any(w.type == "perimeter" for w in layout.walls)
+
+
+def test_door_widths_reflect_leaf_not_swing():
+    layout = read_cad(_no_perimeter_dxf(), "open.dxf")
+    widths = sorted(round(d.width, 2) for d in layout.doors)
+    # Both blocks have a 48in (4ft) swing-inflated world bbox; max(w,h) would make them identical.
+    # The leaf (local x-extent) is 3ft and 6ft respectively — they must differ.
+    assert widths == pytest.approx([3.0, 6.0])
+
+
 def test_units_normalized_to_feet():
     layout = read_cad(_synthetic_dxf(), "synthetic.dxf")
     assert layout.units == "ft"

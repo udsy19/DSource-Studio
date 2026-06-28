@@ -99,8 +99,11 @@ header.bar {
 .plan-viewport svg.is-panning { cursor: grabbing; }
 /* contained mini-plan for version thumbnails — fills its box, never breaks out absolutely */
 .plan-static { display: block; width: 100%; height: 100%; }
+/* room labels carry a paper halo (stroke painted behind the fill) so the text stays legible even
+   where it sits over walls or furniture — fixes the "text breaking" over the drawing */
 .plan-viewport .room-label { font-family: var(--sans); font-size: 1.9px; font-weight: 600;
-  fill: var(--ink-2); letter-spacing: 0.02em; pointer-events: none; }
+  fill: var(--ink-2); letter-spacing: 0.02em; pointer-events: none;
+  paint-order: stroke; stroke: var(--paper); stroke-width: 0.7px; stroke-linejoin: round; }
 .plan-viewport .room-label .room-area { font-family: var(--serif); font-weight: 400;
   font-size: 1.8px; fill: var(--accent); }
 

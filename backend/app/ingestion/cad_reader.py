@@ -58,12 +58,15 @@ _BRANDS: list[tuple[str, str]] = [
     ("haworth", "Haworth"),
 ]
 
-# Layer-name keyword -> wall type. Checked in order against the upper-cased layer name.
+# Layer-name keyword -> wall type. Checked in order against the upper-cased layer name. A line on
+# none of these layers is not a wall (returns "unknown") and is dropped by _read_walls. The "WALL"
+# substring intentionally catches every AIA/non-standard variant — A-WALL, I-WALL, WALL, WALLS,
+# X-WALL-Y — so the building perimeter is recognised whatever the layer is named.
 _WALL_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
-    (("GLAZ", "GLASS", "SYSTEM PANEL"), "glass"),
+    (("GLAZ", "GLASS", "SYSTEM PANEL", "WINDOW"), "glass"),
     (("WALL-PRHT", "HALF"), "half_drywall"),
     (("COLS", "COLUMN", "CORE"), "core"),
-    (("WALL",), "drywall"),
+    (("WALL", "PARTITION", "PRTN"), "drywall"),
 ]
 
 # Room-label keyword -> room type.
@@ -96,6 +99,11 @@ def read_cad(content: bytes, filename: str) -> ExtractedLayout:
     furniture, doors = _read_inserts(msp, lf)
     walls, wall_lines = _read_walls(msp, lf)
     bounds = _bounds(furniture, walls, doors)
+    if _synthesize_perimeter(walls, bounds):
+        notes.append(
+            "Building perimeter was incomplete in the CAD; synthesized an enclosing perimeter "
+            "wall from the outer wall extents (derived, not measured). Confirm before fabrication."
+        )
 
     panels = [f for f in furniture if f.category in ("panel", "mullion")]
     rooms, room_note = _read_rooms(wall_lines, panels, doors, bounds, msp, lf)
@@ -129,6 +137,7 @@ def read_cad(content: bytes, filename: str) -> ExtractedLayout:
 def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
     furniture: list[FurnitureItem] = []
     doors: list[Door] = []
+    leaf_cache: dict[str, float | None] = {}
     for ins in msp.query("INSERT"):
         name = str(ins.dxf.name)
         layer = str(getattr(ins.dxf, "layer", "")).upper()
@@ -144,7 +153,9 @@ def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
         for (x, y, w, h) in positions:
             rotation = float(getattr(ins.dxf, "rotation", 0.0) or 0.0)
             if is_door:
-                doors.append(Door(x=x, y=y, width=max(w, h), rotation=rotation))
+                leaf = _door_leaf_width(ins, lf, leaf_cache)
+                width = round(leaf if leaf is not None else min(w, h), 2)
+                doors.append(Door(x=x, y=y, width=width, rotation=rotation))
             else:
                 furniture.append(FurnitureItem(
                     category=category,
@@ -184,6 +195,37 @@ def _minsert_positions(ins, rows: int, cols: int, lf: float) -> list[tuple[float
     ]
 
 
+def _door_leaf_width(ins, lf: float, cache: dict[str, float | None]) -> float | None:
+    """Door opening width = the block's LOCAL x-extent (in its own coordinate frame, before the
+    insert rotation). A door block draws the leaf along local x and its swing arc along local y, so
+    the world bbox is swing-inflated and reuse of one block makes every world width identical. The
+    local x-extent is the true leaf/opening and differs between a single door and a double door.
+    None when the block geometry can't be measured (caller falls back to the smaller world dim)."""
+    name = str(ins.dxf.name)
+    if name not in cache:
+        cache[name] = _block_local_x(ins, lf)
+    local_x = cache[name]
+    if local_x is None or local_x <= 0.5:
+        return None
+    xscale = abs(float(getattr(ins.dxf, "xscale", 1.0) or 1.0))
+    return local_x * xscale
+
+
+def _block_local_x(ins, lf: float) -> float | None:
+    doc = getattr(ins, "doc", None)
+    block = doc.blocks.get(str(ins.dxf.name)) if doc is not None else None
+    if block is None:
+        return None
+    try:
+        b = ezdxf.bbox.extents(block)
+    except Exception:  # noqa: BLE001 - a degenerate block has no measurable footprint
+        return None
+    if b.extmin is None or b.extmax is None:
+        return None
+    width = (b.extmax[0] - b.extmin[0]) * lf
+    return width if math.isfinite(width) and width > 0 else None
+
+
 def _classify_category(name: str) -> str:
     n = name.lower()
     for category, keywords in _CATEGORY_KEYWORDS:
@@ -218,7 +260,10 @@ def _read_walls(msp, lf: float) -> tuple[list[Wall], list[LineString]]:
         if len(pts) < 2:
             continue
         layer = str(getattr(entity.dxf, "layer", "")).upper()
-        walls.append(Wall(points=pts, type=_classify_wall(layer)))
+        wall_type = _classify_wall(layer)
+        if wall_type == "unknown":
+            continue  # not on a wall/partition/glazing/core layer — furniture detail, not a wall
+        walls.append(Wall(points=pts, type=wall_type))
         lines.append(LineString(pts))
     return walls, lines
 
@@ -243,6 +288,81 @@ def _classify_wall(layer: str) -> str:
         if any(k in layer for k in keywords):
             return wall_type
     return "unknown"
+
+
+_PERIM_COVERAGE_MIN = 0.5  # an edge with <50% wall along it isn't a real bounding wall
+_PERIM_EDGE_TOL = 1.5  # ft — how far off the extent line a segment may sit and still count
+
+
+def _synthesize_perimeter(walls: list[Wall], bounds: tuple[float, float, float, float]) -> bool:
+    """Guarantee the plate is enclosed. Real exports often leave the building outline on a layer we
+    don't read, or as gappy fragments that don't trace a continuous edge — so the 3D/2D show holes
+    where the perimeter should be. When the existing walls don't bound their own footprint, append a
+    derived rectangular perimeter from the outer wall extents (or the plate when no walls exist).
+    Returns True when a perimeter was added so the caller can flag it as derived."""
+    outline = _wall_extent(walls) or bounds
+    minx, miny, maxx, maxy = outline
+    if maxx - minx < 1.0 or maxy - miny < 1.0:
+        return False
+    if walls and _edges_bounded(walls, outline):
+        return False
+    walls.append(Wall(
+        points=[(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)],
+        type="perimeter",
+    ))
+    return True
+
+
+def _wall_extent(walls: list[Wall]) -> tuple[float, float, float, float] | None:
+    pts = [p for w in walls for p in w.points]
+    if not pts:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _edges_bounded(walls: list[Wall], outline: tuple[float, float, float, float]) -> bool:
+    minx, miny, maxx, maxy = outline
+    segs = [(w.points[i], w.points[i + 1]) for w in walls for i in range(len(w.points) - 1)]
+    return min(
+        _edge_coverage(segs, 0, miny, minx, maxx),  # bottom
+        _edge_coverage(segs, 0, maxy, minx, maxx),  # top
+        _edge_coverage(segs, 1, minx, miny, maxy),  # left
+        _edge_coverage(segs, 1, maxx, miny, maxy),  # right
+    ) >= _PERIM_COVERAGE_MIN
+
+
+def _edge_coverage(segs, axis: int, level: float, lo: float, hi: float) -> float:
+    """Fraction of the [lo, hi] extent edge that has a wall segment running along it. `axis` is the
+    edge's running direction (0 = horizontal edge at y=level, 1 = vertical edge at x=level)."""
+    span = hi - lo
+    if span <= 0:
+        return 0.0
+    other = 1 - axis
+    intervals: list[tuple[float, float]] = []
+    for a, b in segs:
+        if abs(a[other] - level) <= _PERIM_EDGE_TOL and abs(b[other] - level) <= _PERIM_EDGE_TOL:
+            start, end = sorted((a[axis], b[axis]))
+            start, end = max(start, lo), min(end, hi)
+            if end > start:
+                intervals.append((start, end))
+    return _union_len(intervals) / span
+
+
+def _union_len(intervals: list[tuple[float, float]]) -> float:
+    if not intervals:
+        return 0.0
+    intervals.sort()
+    total = 0.0
+    cur_start, cur_end = intervals[0]
+    for start, end in intervals[1:]:
+        if start <= cur_end:
+            cur_end = max(cur_end, end)
+        else:
+            total += cur_end - cur_start
+            cur_start, cur_end = start, end
+    return total + (cur_end - cur_start)
 
 
 _WALL_BUF = 0.6  # ft — half-thickness to thicken boundaries into a solid mask (bridges double lines)

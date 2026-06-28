@@ -578,8 +578,17 @@ function CameraRig({ view, size }: { view: ViewMode; size: number }) {
   return null;
 }
 
+/* Extraction can emit a malformed footprint — zero, NaN, or negative (a negative box/cylinder
+   dimension inverts the geometry into an inside-out, mirrored mesh) or an absurd outlier. Clamp to
+   a sane positive size so no bad row renders a flipped, sunken, or giant piece. */
+function clampDim(v: number): number {
+  return Number.isFinite(v) ? Math.min(Math.max(Math.abs(v), 0.5), 30) : 1.5;
+}
+
 function CategoryPiece({ f, finish }: { f: ExtractedFurniture; finish: string }) {
-  const { category, w, h } = f;
+  const { category } = f;
+  const w = clampDim(f.w);
+  const h = clampDim(f.h);
   switch (category) {
     case "chair":
       return <Chair uph={finish} />;
@@ -614,15 +623,19 @@ function LayoutWalls({ layout, w, wall, wallH }: {
 }) {
   const segs = useMemo(() => {
     const out: { x: number; z: number; len: number; angle: number; type: ExtractedLayout["walls"][number]["type"] }[] = [];
-    for (const wall of layout.walls) {
-      for (let i = 0; i < wall.points.length - 1; i++) {
-        const a = wall.points[i];
-        const b = wall.points[i + 1];
+    for (const seg of layout.walls) {
+      const pts = seg.points;
+      // The perimeter is a closed building envelope, but contour/CAD point lists don't repeat the
+      // first point — so also render the closing edge (last → first) or the enclosure shows a gap.
+      const edges = seg.type === "perimeter" && pts.length > 2 ? pts.length : pts.length - 1;
+      for (let i = 0; i < edges; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
         const ax = w.wx(a[0]), az = w.wz(a[1]), bx = w.wx(b[0]), bz = w.wz(b[1]);
         const dx = bx - ax, dz = bz - az;
         const len = Math.hypot(dx, dz);
-        if (len < 0.1) continue;
-        out.push({ x: (ax + bx) / 2, z: (az + bz) / 2, len, angle: -Math.atan2(dz, dx), type: wall.type });
+        if (len < 0.02) continue; // skip only true zero-length noise, never real short runs
+        out.push({ x: (ax + bx) / 2, z: (az + bz) / 2, len, angle: -Math.atan2(dz, dx), type: seg.type });
       }
     }
     return out;
@@ -634,9 +647,12 @@ function LayoutWalls({ layout, w, wall, wallH }: {
         const glass = s.type === "glass";
         const half = s.type === "half_drywall";
         const core = s.type === "core";
-        // height follows the View mode (dollhouse cut vs full); half-walls stay lower still
+        const perimeter = s.type === "perimeter";
+        // height follows the View mode (dollhouse cut vs full); half-walls stay lower, the
+        // perimeter envelope always rises to the full wall height so the building reads enclosed
         const h = half ? wallH * 0.6 : wallH;
-        const thickness = glass ? 0.16 : core ? 0.7 : 0.45;
+        // perimeter is a thicker structural slab; it falls through to the finishable WallMaterial
+        const thickness = glass ? 0.16 : core ? 0.7 : perimeter ? 0.6 : 0.45;
         return (
           <mesh key={i} position={[s.x, h / 2, s.z]} rotation-y={s.angle} castShadow receiveShadow>
             <boxGeometry args={[s.len + (glass ? 0 : 0.3), h, thickness]} />
