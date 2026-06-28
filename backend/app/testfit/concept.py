@@ -17,8 +17,6 @@ from ..floorplan.dxf_ingest import PlanModel
 from .alternatives import generate_alternatives
 from .layout import ProgramSpec, WorkstationSpec
 
-_CM_PER_FT = 30.48
-
 # Base private-office share per planning style, BEFORE the seat-distribution dial scales it.
 # Traditional plates are closed-office heavy, modern are open-plan heavy, cowork sits between.
 _STYLE_OFFICE_BASE = {
@@ -60,11 +58,9 @@ def concept_to_specs(concept: ConceptProgram, plan: PlanModel) -> tuple[ProgramS
 
     program = ProgramSpec(private_office_ratio=office_ratio)
 
-    width_ft = concept.desk_width_cm / _CM_PER_FT
-    depth_ft = concept.desk_depth_cm / _CM_PER_FT
-    if concept.desk_type == "benchings":
-        width_ft *= 1.4
-    spec = WorkstationSpec(width_ft=round(width_ft, 3), depth_ft=round(depth_ft, 3))
+    spec = WorkstationSpec.from_desk_cm(
+        concept.desk_width_cm, concept.desk_depth_cm, benching=concept.desk_type == "benchings"
+    )
 
     return program, spec
 

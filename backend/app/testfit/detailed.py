@@ -47,8 +47,6 @@ from .payloads import plan_payload, testfit_payload
 from .rooms import RoomSpec, place_perimeter_rooms
 from .zones import place_interior_rooms
 
-_CM_PER_FT = 30.48
-
 
 class RoomRequest(BaseModel):
     type: str  # any room catalog key or legacy alias (validated against catalog.py)
@@ -74,11 +72,9 @@ class DetailedProgram(BaseModel):
 
 def _workstation_spec(program: DetailedProgram) -> WorkstationSpec:
     """Desk geometry from cm dials (mirrors Concept): benchings widen the per-desk footprint."""
-    width_ft = program.desk_width_cm / _CM_PER_FT
-    depth_ft = program.desk_depth_cm / _CM_PER_FT
-    if program.desk_type == "benchings":
-        width_ft *= 1.4
-    return WorkstationSpec(width_ft=round(width_ft, 3), depth_ft=round(depth_ft, 3))
+    return WorkstationSpec.from_desk_cm(
+        program.desk_width_cm, program.desk_depth_cm, benching=program.desk_type == "benchings"
+    )
 
 
 def _requested_counts(program: DetailedProgram) -> dict[str, int]:

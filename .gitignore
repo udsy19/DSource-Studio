@@ -39,3 +39,4 @@ frontend/.vite/
 *.swp
 
 .claude/sdd-cache/
+.playwright-mcp/

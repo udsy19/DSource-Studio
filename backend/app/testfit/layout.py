@@ -45,15 +45,33 @@ from .rooms import PRIVATE_OFFICE, MEETING_ROOM, place_perimeter_rooms
 from .zones import COLLAB_SIZE_FT, place_collaboration_zones
 
 
+_CM_PER_FT = 30.48
+# Access/chair depth BEHIND the desk worktop. A 70 cm worktop is not a workstation — the seated
+# occupant + chair pull-out needs this much again, so the footprint that gets placed/counted is the
+# worktop depth plus this zone. Without it desks pack ~2x too dense and read as a barcode.
+_CHAIR_ZONE_CM = 85.0
+
+
 @dataclass
 class WorkstationSpec:
-    width_ft: float = 6.0          # desk width
-    depth_ft: float = 5.0          # desk depth
+    width_ft: float = 6.0          # workstation footprint width (desk width)
+    depth_ft: float = 5.0          # workstation footprint depth (worktop + chair/access zone)
     aisle_ft: float = 3.0          # clear aisle between rows (ADA accessible route = 36in)
     perimeter_setback_ft: float = 3.0
     column_clearance_ft: float = 1.5
     corridor_ft: float = 5.5       # primary circulation spine width (~5-6 ft per code/ADA)
     neighborhood_ft: float = 40.0  # target open-block size between cross-aisles -> departments
+
+    @classmethod
+    def from_desk_cm(cls, width_cm: float, depth_cm: float, benching: bool = False) -> "WorkstationSpec":
+        """Build a spec from a desk worktop (cm). Benching desks share a long run, so their width
+        reads wider; the chair/access zone is added to the depth so the placed footprint is a real
+        workstation, not a bare worktop."""
+        width_ft = width_cm / _CM_PER_FT
+        if benching:
+            width_ft *= 1.4
+        depth_ft = (depth_cm + _CHAIR_ZONE_CM) / _CM_PER_FT
+        return cls(width_ft=round(width_ft, 3), depth_ft=round(depth_ft, 3))
 
 
 @dataclass
