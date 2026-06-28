@@ -169,7 +169,8 @@ header.bar {
 .space3d canvas { display: block; }
 .mat-controls {
   position: absolute; left: 36px; bottom: 26px; z-index: 6;
-  display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap;
+  display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap;
+  max-width: calc(100vw - 72px);
   padding: 14px 18px; background: rgba(244, 241, 234, 0.82);
   backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: var(--r2);
 }
@@ -369,7 +370,8 @@ header.bar {
 /* stat grid */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 18px; }
 .stat { animation: rise 0.6s ease both; }
-.stat .v { font-family: var(--serif); font-size: 30px; font-weight: 400; line-height: 1; letter-spacing: -0.01em; }
+.stat .v { font-family: var(--serif); font-size: 30px; font-weight: 400; line-height: 1; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums; }
 .stat .k { margin-top: 7px; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
 .stat.span { grid-column: 1 / -1; }
 

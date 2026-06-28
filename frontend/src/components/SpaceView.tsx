@@ -3,6 +3,7 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { Component, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { renderView } from "../api";
+import { Segmented } from "../design/ui";
 import type { ExtractedFurniture, ExtractedLayout, Instance, Plan } from "../types";
 
 /* Guards the WebGL canvas: if the browser/GPU can't start WebGL, show a calm fallback instead of
@@ -38,6 +39,17 @@ const FINISHES = [
   { name: "Ember", color: "#b8552f" },
   { name: "Bone", color: "#e6e0d3" },
 ];
+/* wall finishes for the "Walls" material control — applied to the opaque partitions/perimeter walls.
+   Glass keeps the translucent partition look; the rest are matte meshStandardMaterials. */
+const WALLS = [
+  { name: "Painted", color: "#efeae0", roughness: 0.92, metalness: 0, glass: false },
+  { name: "Glass", color: "#aec4cc", roughness: 0.06, metalness: 0.25, glass: true },
+  { name: "Wood", color: "#9b6c3d", roughness: 0.55, metalness: 0.04, glass: false },
+  { name: "Concrete", color: "#9a978f", roughness: 0.86, metalness: 0, glass: false },
+];
+const CEILINGS = ["Open", "Acoustic", "Drywall", "Wood slat"] as const;
+type CeilingType = (typeof CEILINGS)[number];
+type ViewMode = "cutaway" | "full";
 
 const WALL_H = 3.2;
 const LAYOUT_WALL_H = 8.0; // generated-fit glass partitions: ceiling-ish, so clean synthesized rooms enclose
@@ -100,6 +112,67 @@ function SceneLighting({ size }: { size: number }) {
   );
 }
 
+/* Shared wall finish for the "Walls" control — opaque partitions/perimeter walls of both scenes.
+   Glass picks the translucent partition look; the rest are matte slabs that keep polygonOffset so
+   wall-mounted screens still win the depth test. */
+function WallMaterial({ wall }: { wall: (typeof WALLS)[number] }) {
+  if (wall.glass) {
+    return (
+      <meshStandardMaterial
+        color={wall.color} transparent opacity={0.16} roughness={0.06} metalness={0.25}
+        envMapIntensity={1.4} depthWrite={false} side={THREE.DoubleSide}
+      />
+    );
+  }
+  return (
+    <meshStandardMaterial
+      color={wall.color} roughness={wall.roughness} metalness={wall.metalness}
+      envMapIntensity={0.3} side={THREE.DoubleSide}
+      polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1}
+    />
+  );
+}
+
+/* Ceiling for Full-height view only — a plane at the top of the walls. Open = exposed (no ceiling);
+   Acoustic = a 2 ft grid; Drywall = flat warm white; Wood slat = parallel slats. It never casts
+   shadow, so it doesn't occlude the baked key light and the interior stays lit. */
+function Ceiling({ width, depth, height, type }: {
+  width: number; depth: number; height: number; type: CeilingType;
+}) {
+  const slats = useMemo(() => {
+    const pitch = 2.2;
+    const n = Math.max(2, Math.round(depth / pitch));
+    const step = depth / n;
+    const positions = Array.from({ length: n }, (_, i) => -depth / 2 + step * (i + 0.5));
+    return { positions, slatDepth: step * 0.72 };
+  }, [depth]);
+
+  if (type === "Open") return null;
+  const baseColor = type === "Wood slat" ? "#5d4a34" : type === "Acoustic" ? "#dcd8cd" : "#efeae6";
+  const span = Math.max(width, depth);
+  return (
+    <group position={[0, height, 0]}>
+      <mesh rotation-x={Math.PI / 2} receiveShadow>
+        <planeGeometry args={[width, depth]} />
+        <meshStandardMaterial
+          color={baseColor} roughness={type === "Wood slat" ? 0.7 : 0.95}
+          metalness={0} envMapIntensity={0.2} side={THREE.DoubleSide}
+        />
+      </mesh>
+      {type === "Acoustic" && (
+        <gridHelper args={[span, Math.max(2, Math.round(span / 2)), "#b4ae9f", "#c6c0b2"]} position={[0, -0.02, 0]} />
+      )}
+      {type === "Wood slat" &&
+        slats.positions.map((z, i) => (
+          <mesh key={i} position={[0, -0.07, z]}>
+            <boxGeometry args={[width, 0.14, slats.slatDepth]} />
+            <meshStandardMaterial color="#7a5c3a" roughness={0.62} metalness={0.03} envMapIntensity={0.3} />
+          </mesh>
+        ))}
+    </group>
+  );
+}
+
 function Floor({ plan, w, finish }: { plan: Plan; w: World; finish: typeof FLOORS[number] }) {
   const geo = useMemo(() => {
     const shape = new THREE.Shape(plan.boundary.map(([x, y]) => new THREE.Vector2(w.wx(x), -w.wz(y))));
@@ -122,7 +195,7 @@ function Floor({ plan, w, finish }: { plan: Plan; w: World; finish: typeof FLOOR
   );
 }
 
-function Walls({ plan, w }: { plan: Plan; w: World }) {
+function Walls({ plan, w, wall, wallH }: { plan: Plan; w: World; wall: (typeof WALLS)[number]; wallH: number }) {
   const edges = useMemo(() => {
     const out: { x: number; z: number; len: number; angle: number }[] = [];
     const b = plan.boundary;
@@ -140,9 +213,9 @@ function Walls({ plan, w }: { plan: Plan; w: World }) {
   return (
     <>
       {edges.map((e, i) => (
-        <mesh key={i} position={[e.x, WALL_H / 2, e.z]} rotation-y={e.angle} castShadow>
-          <boxGeometry args={[e.len + 0.5, WALL_H, 0.5]} />
-          <meshStandardMaterial color="#efeae0" roughness={0.9} />
+        <mesh key={i} position={[e.x, wallH / 2, e.z]} rotation-y={e.angle} castShadow receiveShadow>
+          <boxGeometry args={[e.len + 0.5, wallH, 0.5]} />
+          <WallMaterial wall={wall} />
         </mesh>
       ))}
     </>
@@ -390,6 +463,29 @@ function LowBox({ w, h }: { w: number; h: number }) {
 }
 
 /* map an extracted-furniture category → existing/new procedural geometry */
+// Drop the camera to an interior angle in Full-height (so you look INTO the room and up at the
+// ceiling, not down at its top); restore the high 3/4 dollhouse angle in Cutaway. Re-runs only when
+// the view mode or plate size changes, so it never fights the user's orbit.
+function CameraRig({ view, size }: { view: ViewMode; size: number }) {
+  const { camera, controls } = useThree();
+  useEffect(() => {
+    // Full height: sit INSIDE the footprint at eye level (~7 ft, below the 8 ft ceiling) looking
+    // across the room, so walls + ceiling read. Cutaway: the high 3/4 dollhouse view.
+    const pos: [number, number, number] =
+      view === "full"
+        ? [size * 0.18, 7, size * 0.22]
+        : [size * 0.92, size * 0.5, size * 0.96];
+    camera.position.set(pos[0], pos[1], pos[2]);
+    camera.updateProjectionMatrix();
+    const c = controls as unknown as { target: THREE.Vector3; update: () => void } | null;
+    if (c) {
+      c.target.set(0, view === "full" ? 6 : 0, 0);
+      c.update();
+    }
+  }, [view, size, camera, controls]);
+  return null;
+}
+
 function CategoryPiece({ f, finish }: { f: ExtractedFurniture; finish: string }) {
   const { category, w, h } = f;
   switch (category) {
@@ -421,7 +517,9 @@ function CategoryPiece({ f, finish }: { f: ExtractedFurniture; finish: string })
 
 /* a wall segment extruded from a polyline; height + material vary by type.
    glass = translucent, core = darker solid, everything else = solid drywall. */
-function LayoutWalls({ layout, w }: { layout: ExtractedLayout; w: World }) {
+function LayoutWalls({ layout, w, wall, wallH }: {
+  layout: ExtractedLayout; w: World; wall: (typeof WALLS)[number]; wallH: number;
+}) {
   const segs = useMemo(() => {
     const out: { x: number; z: number; len: number; angle: number; type: ExtractedLayout["walls"][number]["type"] }[] = [];
     for (const wall of layout.walls) {
@@ -444,8 +542,8 @@ function LayoutWalls({ layout, w }: { layout: ExtractedLayout; w: World }) {
         const glass = s.type === "glass";
         const half = s.type === "half_drywall";
         const core = s.type === "core";
-        // dollhouse cut so you see over the wall fragments; half-walls lower still
-        const h = half ? DOLLHOUSE_H * 0.6 : DOLLHOUSE_H;
+        // height follows the View mode (dollhouse cut vs full); half-walls stay lower still
+        const h = half ? wallH * 0.6 : wallH;
         const thickness = glass ? 0.16 : core ? 0.7 : 0.45;
         return (
           <mesh key={i} position={[s.x, h / 2, s.z]} rotation-y={s.angle} castShadow receiveShadow>
@@ -455,12 +553,14 @@ function LayoutWalls({ layout, w }: { layout: ExtractedLayout; w: World }) {
                 color="#aec4cc" transparent opacity={0.16} roughness={0.06} metalness={0.25}
                 envMapIntensity={1.2} depthWrite={false} side={THREE.DoubleSide}
               />
-            ) : (
+            ) : core ? (
+              // structural core stays its own dark slab — not a finishable wall surface
               <meshStandardMaterial
-                color={core ? "#6b665b" : "#e7e1d4"} roughness={0.94} envMapIntensity={0.2}
-                side={THREE.DoubleSide}
+                color="#6b665b" roughness={0.94} envMapIntensity={0.2} side={THREE.DoubleSide}
                 polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1}
               />
+            ) : (
+              <WallMaterial wall={wall} />
             )}
           </mesh>
         );
@@ -484,8 +584,9 @@ function dedupeFurniture(furniture: ExtractedFurniture[]): ExtractedFurniture[] 
   return kept;
 }
 
-function LayoutScene({ layout, floor, finish }: {
+function LayoutScene({ layout, floor, finish, view, wall, ceiling }: {
   layout: ExtractedLayout; floor: typeof FLOORS[number]; finish: typeof FINISHES[number];
+  view: ViewMode; wall: (typeof WALLS)[number]; ceiling: CeilingType;
 }) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const w = useMemo(() => worldFromBounds(minx, miny, maxx, maxy), [minx, miny, maxx, maxy]);
@@ -493,6 +594,8 @@ function LayoutScene({ layout, floor, finish }: {
     () => dedupeFurniture(layout.furniture).slice(0, MAX_RENDER),
     [layout.furniture],
   );
+  const wallH = view === "full" ? LAYOUT_WALL_H : DOLLHOUSE_H;
+  const maxPolar = view === "full" ? Math.PI / 1.85 : Math.PI / 2.05;
   return (
     <>
       <SceneLighting size={w.size} />
@@ -506,7 +609,7 @@ function LayoutScene({ layout, floor, finish }: {
           side={THREE.DoubleSide}
         />
       </mesh>
-      <LayoutWalls layout={layout} w={w} />
+      <LayoutWalls layout={layout} w={w} wall={wall} wallH={wallH} />
       {furniture.map((f, i) => (
         <group
           key={i}
@@ -516,8 +619,11 @@ function LayoutScene({ layout, floor, finish }: {
           <CategoryPiece f={f} finish={finish.color} />
         </group>
       ))}
+      {view === "full" && (
+        <Ceiling width={(maxx - minx) * 1.1} depth={(maxy - miny) * 1.1} height={LAYOUT_WALL_H} type={ceiling} />
+      )}
       <ContactShadows frames={1} resolution={1024} position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.1} opacity={0.42} far={22} />
-      <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={20} />
+      <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={maxPolar} minDistance={view === "full" ? 4 : 20} />
     </>
   );
 }
@@ -588,18 +694,26 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
   }
 }
 
-function Scene({ plan, instances, floor, finish }: {
+function Scene({ plan, instances, floor, finish, view, wall, ceiling }: {
   plan: Plan; instances: Instance[]; floor: typeof FLOORS[number]; finish: typeof FINISHES[number];
+  view: ViewMode; wall: (typeof WALLS)[number]; ceiling: CeilingType;
 }) {
   const w = useWorld(plan);
+  const wallH = view === "full" ? LAYOUT_WALL_H : WALL_H;
+  const maxPolar = view === "full" ? Math.PI / 1.85 : Math.PI / 2.05;
+  const ceilDims = useMemo(() => {
+    const xs = plan.boundary.map((p) => p[0]);
+    const ys = plan.boundary.map((p) => p[1]);
+    return { width: (Math.max(...xs) - Math.min(...xs)) * 1.02, depth: (Math.max(...ys) - Math.min(...ys)) * 1.02 };
+  }, [plan]);
   return (
     <>
       <SceneLighting size={w.size} />
       <Floor plan={plan} w={w} finish={floor} />
-      <Walls plan={plan} w={w} />
+      <Walls plan={plan} w={w} wall={wall} wallH={wallH} />
       {plan.columns.map(([x, y], i) => (
-        <mesh key={`c${i}`} position={[w.wx(x), WALL_H / 2, w.wz(y)]} castShadow>
-          <cylinderGeometry args={[0.8, 0.8, WALL_H, 16]} />
+        <mesh key={`c${i}`} position={[w.wx(x), wallH / 2, w.wz(y)]} castShadow>
+          <cylinderGeometry args={[0.8, 0.8, wallH, 16]} />
           <meshStandardMaterial color="#d6d0c0" roughness={0.7} />
         </mesh>
       ))}
@@ -608,8 +722,11 @@ function Scene({ plan, instances, floor, finish }: {
           <Piece it={it} finish={finish.color} />
         </group>
       ))}
+      {view === "full" && (
+        <Ceiling width={ceilDims.width} depth={ceilDims.depth} height={LAYOUT_WALL_H} type={ceiling} />
+      )}
       <ContactShadows frames={1} resolution={1024} position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.1} opacity={0.42} far={22} />
-      <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={20} />
+      <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={maxPolar} minDistance={view === "full" ? 4 : 20} />
     </>
   );
 }
@@ -619,6 +736,9 @@ type SpaceViewProps = { plan: Plan; instances: Instance[] } | { layout: Extracte
 export default function SpaceView(props: SpaceViewProps) {
   const [floor, setFloor] = useState(FLOORS[0]);
   const [finish, setFinish] = useState(FINISHES[0]);
+  const [view, setView] = useState<ViewMode>("cutaway");
+  const [wall, setWall] = useState(WALLS[0]);
+  const [ceiling, setCeiling] = useState<CeilingType>(CEILINGS[0]);
   const [render, setRender] = useState<null | { busy: boolean; img: string | null; err: string | null }>(null);
   const size = "layout" in props
     ? Math.max(props.layout.bounds[2] - props.layout.bounds[0], props.layout.bounds[3] - props.layout.bounds[1])
@@ -651,10 +771,11 @@ export default function SpaceView(props: SpaceViewProps) {
           camera={{ position: [size * 0.92, size * 0.5, size * 0.96], fov: 32 }}
           dpr={[1, 2]}
         >
+          <CameraRig view={view} size={size} />
           {"layout" in props ? (
-            <LayoutScene layout={props.layout} floor={floor} finish={finish} />
+            <LayoutScene layout={props.layout} floor={floor} finish={finish} view={view} wall={wall} ceiling={ceiling} />
           ) : (
-            <Scene plan={props.plan} instances={props.instances} floor={floor} finish={finish} />
+            <Scene plan={props.plan} instances={props.instances} floor={floor} finish={finish} view={view} wall={wall} ceiling={ceiling} />
           )}
         </Canvas>
       </WebGLBoundary>
@@ -677,6 +798,36 @@ export default function SpaceView(props: SpaceViewProps) {
                 style={{ background: f.color }} onClick={() => setFinish(f)} />
             ))}
           </div>
+        </div>
+        <div className="mat-group">
+          <span className="ds-eyebrow">View</span>
+          <Segmented<ViewMode>
+            options={[{ value: "cutaway", label: "Cutaway" }, { value: "full", label: "Full height" }]}
+            value={view}
+            onChange={setView}
+          />
+        </div>
+        <div className="mat-group">
+          <span className="ds-eyebrow">Walls</span>
+          <div className="sw-row">
+            {WALLS.map((wm) => (
+              <button key={wm.name} title={wm.name} aria-label={`${wm.name} walls`} aria-pressed={wall.name === wm.name}
+                className={`sw ${wall.name === wm.name ? "on" : ""}`} style={{ background: wm.color }} onClick={() => setWall(wm)} />
+            ))}
+          </div>
+        </div>
+        <div className="mat-group">
+          <span className="ds-eyebrow">Ceiling</span>
+          <Segmented<CeilingType>
+            options={[
+              { value: "Open", label: "Open" },
+              { value: "Acoustic", label: "Acoustic" },
+              { value: "Drywall", label: "Drywall" },
+              { value: "Wood slat", label: "Slat" },
+            ]}
+            value={ceiling}
+            onChange={setCeiling}
+          />
         </div>
         <button className="ds-btn ds-btn--primary" onClick={handleRender}>Render</button>
         <span className="mat-hint">drag to orbit · scroll to zoom</span>
