@@ -6,6 +6,7 @@ import {
   downloadLayoutTakeoff,
   downloadReport,
   downloadTakeoffFromFit,
+  downloadTakeoffFromLayout,
   generateAlternatives,
   generateDetailed,
   generateFromConcept,
@@ -149,6 +150,9 @@ export default function Studio() {
   // Read-layout state (the existing flow).
   const [layout, setLayout] = useState<ExtractedLayout | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
+  // the from-fit endpoints (those read the plan + testfit, which the synthesized layout discards).
+  const [adoptedFit, setAdoptedFit] = useState<{ plan: Plan; alternative: Alternative } | null>(null);
 
   // Generate state — Concept | Detailed sub-mode, kept separate from the read-layout state.
   const [genMode, setGenMode] = useState<"concept" | "detailed">("concept");
@@ -167,6 +171,7 @@ export default function Studio() {
     setBusy(true);
     setErr(null);
     setLayout(null);
+    setAdoptedFit(null);
     setFile(f);
     try {
       // Read the REAL layout from the CAD — walls, rooms, and a furniture inventory straight from
@@ -185,6 +190,7 @@ export default function Studio() {
     setVersions(null);
     setSelectedId(null);
     setPinned([]);
+    setAdoptedFit(null);
     setFile(f);
     try {
       // Generate scored test-fit versions from the plate + the program (Concept brief or the
@@ -224,6 +230,7 @@ export default function Studio() {
     const sel = versions?.alternatives.find((a) => a.id === selectedId);
     if (!versions || !sel) return;
     setLayout(layoutFromFit(versions.plan, sel.testfit.instances));
+    setAdoptedFit({ plan: versions.plan, alternative: sel });
     setStudioMode("read");
     setView("plan");
   }
@@ -392,10 +399,63 @@ export default function Studio() {
 
                 <hr className="ds-rule" />
                 {layout.source === "generated" ? (
-                  <Callout quiet>
-                    Adopted from a generated version. Deliverables (report, takeoff, BIM, CAD) export
-                    from that version in Generate mode.
-                  </Callout>
+                  <div className="exports">
+                    <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
+                    <div className="export-actions">
+                      <button
+                        className="export-btn export-btn--primary"
+                        onClick={() => runExport("takeoff", () => downloadTakeoffFromLayout(layout))}
+                        disabled={!!exporting}
+                      >
+                        <span className="export-btn-label">Quantity takeoff</span>
+                        <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
+                      </button>
+                      {adoptedFit && (
+                        <>
+                          <button
+                            className="export-btn"
+                            onClick={() =>
+                              runExport("report", () =>
+                                downloadReport({
+                                  project: { client: "", building, style: "Modern", floor: "" },
+                                  plan: adoptedFit.plan,
+                                  alternatives: [adoptedFit.alternative],
+                                }),
+                              )
+                            }
+                            disabled={!!exporting}
+                          >
+                            <span className="export-btn-label">Space-planning report</span>
+                            <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF"}</span>
+                          </button>
+                          <button
+                            className="export-btn"
+                            onClick={() =>
+                              runExport("ifc", () =>
+                                downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }),
+                              )
+                            }
+                            disabled={!!exporting}
+                          >
+                            <span className="export-btn-label">BIM model</span>
+                            <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
+                          </button>
+                          <button
+                            className="export-btn"
+                            onClick={() =>
+                              runExport("dxf", () =>
+                                downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }),
+                              )
+                            }
+                            disabled={!!exporting}
+                          >
+                            <span className="export-btn-label">CAD drawing</span>
+                            <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="exports">
                     <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>

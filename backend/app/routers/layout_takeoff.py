@@ -12,14 +12,27 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..ingestion.cad_reader import read_cad
+from ..ingestion.schema import ExtractedLayout
 from ..takeoff.layout_takeoff import build_layout_takeoff
 
-router = APIRouter(prefix="/api/ingest", tags=["takeoff"])
+router = APIRouter(tags=["takeoff"])
 
 _XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-@router.post("/takeoff")
+def _stream_takeoff(layout: ExtractedLayout) -> StreamingResponse:
+    wb = build_layout_takeoff(layout)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="layout-takeoff.xlsx"'},
+    )
+
+
+@router.post("/api/ingest/takeoff")
 async def layout_to_takeoff(file: UploadFile = File(...)):
     if not (file.filename or "").lower().endswith((".dxf", ".dwg")):
         raise HTTPException(status_code=422, detail="Expected a .dxf or .dwg CAD file.")
@@ -31,12 +44,10 @@ async def layout_to_takeoff(file: UploadFile = File(...)):
     except Exception as exc:  # noqa: BLE001 - surface parse errors at the HTTP boundary
         raise HTTPException(status_code=422, detail=f"Could not read CAD file: {exc}") from exc
 
-    wb = build_layout_takeoff(layout)
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    return StreamingResponse(
-        buffer,
-        media_type=_XLSX_MEDIA,
-        headers={"Content-Disposition": 'attachment; filename="layout-takeoff.xlsx"'},
-    )
+    return _stream_takeoff(layout)
+
+
+@router.post("/api/layout/takeoff")
+async def adopted_layout_to_takeoff(layout: ExtractedLayout):
+    """Takeoff from an already-extracted layout (e.g. an adopted generated version), sent as JSON."""
+    return _stream_takeoff(layout)

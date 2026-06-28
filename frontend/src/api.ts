@@ -182,6 +182,20 @@ export async function downloadLayoutTakeoff(file: File): Promise<void> {
   );
 }
 
+// Takeoff from an already-extracted layout (an adopted generated version) — JSON body, not a file.
+export async function downloadTakeoffFromLayout(
+  layout: import("./types").ExtractedLayout,
+): Promise<void> {
+  await downloadBlob(
+    await fetch("/api/layout/takeoff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(layout),
+    }),
+    "quantity-takeoff.xlsx",
+  );
+}
+
 export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),

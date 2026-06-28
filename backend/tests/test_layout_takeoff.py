@@ -2,10 +2,14 @@
 
 import io
 
+from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app.ingestion.schema import Door, ExtractedLayout, FurnitureItem, Room, Wall
+from app.main import app
 from app.takeoff.layout_takeoff import build_layout_takeoff
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _layout() -> ExtractedLayout:
@@ -163,3 +167,48 @@ def test_serializes_to_xlsx_bytes():
     wb.save(buf)
     buf.seek(0)
     assert len(load_workbook(buf).sheetnames) == 10
+
+
+# A layout shaped exactly as frontend/src/fitToLayout.ts emits it: source="generated", a
+# perimeter wall, one synthesized room, and furniture WITHOUT room_id.
+def _fit_shaped_dict() -> dict:
+    return {
+        "source": "generated",
+        "units": "ft",
+        "bounds": [0.0, 0.0, 20.0, 10.0],
+        "walls": [
+            {"type": "perimeter", "points": [[0, 0], [20, 0], [20, 10], [0, 10], [0, 0]]},
+        ],
+        "doors": [],
+        "rooms": [
+            {
+                "id": "r0",
+                "label": "Office",
+                "area_sf": 200,
+                "polygon": [[0, 0], [20, 0], [20, 10], [0, 10], [0, 0]],
+                "center": [10, 5],
+                "type": "office",
+            },
+        ],
+        "furniture": [
+            {"category": "workstation", "block_name": "", "brand": "", "model": "",
+             "x": 2, "y": 2, "w": 5, "h": 2.5, "rotation": 0},
+            {"category": "chair", "block_name": "", "brand": "", "model": "",
+             "x": 8, "y": 2, "w": 2, "h": 2, "rotation": 0},
+        ],
+    }
+
+
+def test_schema_parses_fit_shaped_layout_without_room_id():
+    layout = ExtractedLayout.model_validate(_fit_shaped_dict())
+    assert layout.source == "generated"
+    assert all(f.room_id is None for f in layout.furniture)
+
+
+def test_layout_takeoff_endpoint_streams_xlsx():
+    client = TestClient(app)
+    res = client.post("/api/layout/takeoff", json=_fit_shaped_dict())
+    assert res.status_code == 200
+    assert res.headers["content-type"] == _XLSX_MEDIA
+    assert res.content
+    assert len(load_workbook(io.BytesIO(res.content)).sheetnames) == 10
