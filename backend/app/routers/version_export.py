@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..ifc.service import build_ifc
 from ..takeoff.service import build_takeoff_workbook
+from ..testfit.dxf_export import build_testfit_dxf
 from ..testfit.payloads import fit_from_payload, plan_from_payload
 
 router = APIRouter(prefix="/api/testfit", tags=["version-export"])
@@ -48,4 +49,14 @@ def ifc_from_fit(req: FitExport):
         io.BytesIO(data),
         media_type="application/x-step",
         headers={"Content-Disposition": 'attachment; filename="model.ifc"'},
+    )
+
+
+@router.post("/dxf-from-fit")
+def dxf_from_fit(req: FitExport):
+    data = build_testfit_dxf(plan_from_payload(req.plan), fit_from_payload(req.testfit))
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="image/vnd.dxf",
+        headers={"Content-Disposition": 'attachment; filename="test-fit.dxf"'},
     )

@@ -207,6 +207,8 @@ export const downloadTakeoffFromFit = (b: FitExport) =>
   postFit("/api/testfit/takeoff-from-fit", b, "quantity-takeoff.xlsx");
 export const downloadIfcFromFit = (b: FitExport) =>
   postFit("/api/testfit/ifc-from-fit", b, "model.ifc");
+export const downloadDxfFromFit = (b: FitExport) =>
+  postFit("/api/testfit/dxf-from-fit", b, "test-fit.dxf");
 
 export async function downloadReport(reportData: {
   project: import("./types").ReportProject;

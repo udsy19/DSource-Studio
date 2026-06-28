@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  downloadDxfFromFit,
   downloadIfc,
   downloadIfcFromFit,
   downloadLayoutTakeoff,
@@ -540,9 +541,21 @@ export default function Studio() {
                       <span className="export-btn-label">BIM model</span>
                       <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
                     </button>
+                    <button
+                      className="export-btn"
+                      onClick={() =>
+                        runExport("dxf", () =>
+                          downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }),
+                        )
+                      }
+                      disabled={!!exporting}
+                    >
+                      <span className="export-btn-label">CAD drawing</span>
+                      <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
+                    </button>
                   </div>
                   <p className="disclaim" style={{ marginTop: 12 }}>
-                    Report compares all three versions; takeoff &amp; BIM export the selected one.
+                    Report compares all three versions; takeoff, BIM &amp; CAD export the selected one.
                   </p>
                 </div>
               </>
