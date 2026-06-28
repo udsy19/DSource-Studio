@@ -27,14 +27,20 @@ from .metrics import compute_metrics
 from .payloads import plan_payload, testfit_payload
 
 
-def _variants(base: ProgramSpec) -> list[tuple[str, ProgramSpec, WorkstationSpec]]:
-    """Build the three (id, program, workstation-spec) parameter sets from a base program.
+def _variants(
+    base: ProgramSpec, base_spec: WorkstationSpec
+) -> list[tuple[str, ProgramSpec, WorkstationSpec]]:
+    """Build the three (id, program, workstation-spec) parameter sets from a base program + spec.
 
     Scaling factors are fixed constants (deterministic). Ratios are clamped so an aggressive
-    base program can't push a variant past sane bounds.
+    base program can't push a variant past sane bounds. The base WorkstationSpec carries the
+    desk geometry (width/depth) so an upstream caller (e.g. the Concept program) sees its desk
+    size flow into every variant; only variant B tightens the desk to express "denser open plan".
     """
+    from dataclasses import replace
+
     return [
-        ("A", base, WorkstationSpec()),
+        ("A", base, base_spec),
         (
             "B",
             ProgramSpec(
@@ -45,7 +51,7 @@ def _variants(base: ProgramSpec) -> list[tuple[str, ProgramSpec, WorkstationSpec
                 meeting_ratio=base.meeting_ratio * 0.75,
                 collaboration_ratio=base.collaboration_ratio * 1.3,
             ),
-            WorkstationSpec(width_ft=5.0, depth_ft=4.5),
+            replace(base_spec, width_ft=base_spec.width_ft * 0.85, depth_ft=base_spec.depth_ft * 0.9),
         ),
         (
             "C",
@@ -57,7 +63,7 @@ def _variants(base: ProgramSpec) -> list[tuple[str, ProgramSpec, WorkstationSpec
                 meeting_ratio=base.meeting_ratio * 1.4,
                 collaboration_ratio=base.collaboration_ratio * 0.7,
             ),
-            WorkstationSpec(),
+            base_spec,
         ),
     ]
 
@@ -66,15 +72,18 @@ def generate_alternatives(
     plan: PlanModel,
     program: ProgramSpec | None = None,
     n: int = 3,
+    spec: WorkstationSpec | None = None,
 ) -> dict:
     """Generate up to `n` (default 3) distinct scored test-fits for one floor plate.
 
     Each alternative = `generate_mixed_layout` under a varied program/spec, scored by
-    `compute_metrics`. Deterministic: identical input -> identical output.
+    `compute_metrics`. Deterministic: identical input -> identical output. `spec` sets the base
+    desk geometry the variants spread around (defaults to engine defaults when omitted).
     """
     base = program or ProgramSpec()
+    base_spec = spec or WorkstationSpec()
     alternatives = []
-    for alt_id, prog, spec in _variants(base)[:n]:
+    for alt_id, prog, spec in _variants(base, base_spec)[:n]:
         fit = generate_mixed_layout(plan, spec, prog)
         alternatives.append({
             "id": alt_id,

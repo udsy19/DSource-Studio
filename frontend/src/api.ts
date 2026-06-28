@@ -118,6 +118,24 @@ export async function generateAlternatives(
   return res.json();
 }
 
+// Concept mode: generate scored test-fit VERSIONS from a plate + a simple brief.
+// Same response shape as generateAlternatives; the brief drives the layout.
+export async function generateFromConcept(
+  file: File,
+  concept: import("./types").ConceptProgram,
+): Promise<import("./types").AlternativesResponse> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("planning_style", concept.planning_style);
+  fd.append("desk_type", concept.desk_type);
+  fd.append("desk_width_cm", String(concept.desk_width_cm));
+  fd.append("desk_depth_cm", String(concept.desk_depth_cm));
+  fd.append("closed_ratio", String(concept.closed_ratio));
+  const res = await fetch("/api/generate", { method: "POST", body: fd });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 export async function downloadTakeoff(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/takeoff", { method: "POST", body: planForm(file, opts) }),

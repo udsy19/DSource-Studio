@@ -168,13 +168,28 @@ export interface Metrics {
 
 export interface Alternative {
   id: string;
-  testfit: { instances: Instance[] };
+  testfit: {
+    instances: Instance[];
+    workstation_count?: number;
+    office_count?: number;
+    meeting_count?: number;
+    collab_count?: number;
+  };
   metrics: Metrics;
 }
 
 export interface AlternativesResponse {
   plan: Plan;
   alternatives: Alternative[];
+}
+
+// Concept-mode brief — the simple program the user picks to generate test-fit versions.
+export interface ConceptProgram {
+  planning_style: "traditional" | "modern" | "cowork";
+  desk_type: "workstations" | "benchings";
+  desk_width_cm: number;
+  desk_depth_cm: number;
+  closed_ratio: number; // 0..1 — share of seats in closed offices vs open plan
 }
 
 export interface ReportProject {
