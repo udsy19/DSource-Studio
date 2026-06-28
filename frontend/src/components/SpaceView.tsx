@@ -40,8 +40,7 @@ const FINISHES = [
 ];
 
 const WALL_H = 3.2;
-const ROOM_H = 7;
-const LAYOUT_WALL_H = 8.0; // real extracted walls + glass partitions: ceiling-ish, so rooms enclose
+const LAYOUT_WALL_H = 8.0; // real extracted walls + generated-fit glass partitions: ceiling-ish, so rooms enclose
 const MAX_RENDER = 2500; // safety cap so a pathological plan never freezes the browser
 
 type World = { cx: number; cy: number; size: number; wx: (x: number) => number; wz: (y: number) => number };
@@ -105,15 +104,24 @@ function Walls({ plan, w }: { plan: Plan; w: World }) {
   );
 }
 
-function RoomShell({ w, h, color }: { w: number; h: number; color: string }) {
-  const t = 0.25;
-  const mat = <meshStandardMaterial color={color} transparent opacity={0.12} roughness={0.1} />;
+/* translucent glass partitions enclosing a room footprint — four walls at the layout's ~8 ft
+   partition height so generated offices/meeting rooms read as rooms, not floating desks.
+   Same glass material as the extracted-CAD LayoutWalls (cool slate, no depth write). */
+function RoomShell({ w, h }: { w: number; h: number }) {
+  const t = 0.16;
+  const y = LAYOUT_WALL_H / 2;
+  const glass = (
+    <meshStandardMaterial
+      color="#aec4cc" transparent opacity={0.18} roughness={0.1} metalness={0.1}
+      depthWrite={false}
+    />
+  );
   return (
     <group>
-      <mesh position={[0, ROOM_H / 2, -h / 2]}>{<boxGeometry args={[w, ROOM_H, t]} />}{mat}</mesh>
-      <mesh position={[0, ROOM_H / 2, h / 2]}>{<boxGeometry args={[w, ROOM_H, t]} />}{mat}</mesh>
-      <mesh position={[-w / 2, ROOM_H / 2, 0]}>{<boxGeometry args={[t, ROOM_H, h]} />}{mat}</mesh>
-      <mesh position={[w / 2, ROOM_H / 2, 0]}>{<boxGeometry args={[t, ROOM_H, h]} />}{mat}</mesh>
+      <mesh position={[0, y, -h / 2]}>{<boxGeometry args={[w, LAYOUT_WALL_H, t]} />}{glass}</mesh>
+      <mesh position={[0, y, h / 2]}>{<boxGeometry args={[w, LAYOUT_WALL_H, t]} />}{glass}</mesh>
+      <mesh position={[-w / 2, y, 0]}>{<boxGeometry args={[t, LAYOUT_WALL_H, h]} />}{glass}</mesh>
+      <mesh position={[w / 2, y, 0]}>{<boxGeometry args={[t, LAYOUT_WALL_H, h]} />}{glass}</mesh>
     </group>
   );
 }
@@ -448,7 +456,9 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
   const { type, w, h } = it;
   const model = MODELS[type];
   if (model) return <GltfPiece url={model} />;
-  switch (type) {
+  // widen to string: generated programs may emit richer types (e.g. phone_booth) beyond the
+  // four in the InstanceType union — handle them here, unknowns fall through to a low box.
+  switch (type as string) {
     case "workstation":
       return (
         <group>
@@ -461,7 +471,7 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
     case "private_office":
       return (
         <group>
-          <RoomShell w={w} h={h} color="#7d8a86" />
+          <RoomShell w={w} h={h} />
           <group position={[0, 0, -h * 0.12]}>
             <Desk w={w * 0.62} h={h * 0.5} />
           </group>
@@ -473,7 +483,7 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
     case "meeting_room":
       return (
         <group>
-          <RoomShell w={w} h={h} color="#7d8a86" />
+          <RoomShell w={w} h={h} />
           <Table w={w} h={h} />
           {[-1, 1].map((sx) =>
             [-1, 1].map((sz) => (
@@ -496,8 +506,15 @@ function Piece({ it, finish }: { it: Instance; finish: string }) {
           </group>
         </group>
       );
+    case "phone_booth":
+      return (
+        <group>
+          <RoomShell w={w} h={h} />
+          <Stool color={finish} />
+        </group>
+      );
     default:
-      return null;
+      return <LowBox w={w} h={h} />;
   }
 }
 

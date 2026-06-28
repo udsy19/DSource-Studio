@@ -3,16 +3,15 @@
 The high-control counterpart to Concept mode. Instead of high-level dials, the user states
 EXPLICIT room-type COUNTS and a placement preference per type, and the engine honours them:
 
-  rooms: [{type, count, placement}]   type in {office, meeting, huddle, phone_booth}
+  rooms: [{type, count, placement}]   type = any room catalog key (see catalog.py)
                                        placement in {window, core, flexible}
 
-Type -> instance:
-  office       -> private_office  (10x12 ft enclosed)
-  meeting      -> meeting_room    (20x15 ft enclosed)
-  huddle       -> collaboration   (8x8 ft small enclosed/open cluster)
-  phone_booth  -> phone_booth     (4x4 ft single-occupant enclosed; reuses room geometry at a
-                                   small size — a booth is a tiny private_office, so it is placed
-                                   by the same edge-march/interior packer, not invented separately)
+Type -> instance is defined by the room CATALOG (`catalog.py`): each key carries its footprint
+(feet) and the placement instance type the packers + metrics understand. Many keys are size
+variants of one instance type — e.g. office_exec/large/medium/small and the team offices all place
+as `private_office`; every conference size places as `meeting_room`. Amenities (reception, kitchen,
+wellness, copy/print, storage) carry their own instance types (enclosed support rooms, not seats).
+The legacy keys office/meeting/huddle/phone_booth remain as aliases.
 
 Placement:
   window   -> perimeter band (edge-march along the exterior wall, daylight)
@@ -28,10 +27,11 @@ Deterministic: same program -> same output. Returns the shared `AlternativesResu
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from shapely.geometry import Polygon, box
 
 from ..floorplan.dxf_ingest import PlanModel
+from .catalog import is_valid_key, lookup, room_spec
 from .layout import (
     FurnitureInstance,
     TestFit,
@@ -49,20 +49,18 @@ from .zones import place_interior_rooms
 
 _CM_PER_FT = 30.48
 
-# Per Detailed room type: the canonical instance type + its footprint (feet). Booths reuse the
-# room packer at a small size; huddles are small collaboration clusters.
-_ROOM_TYPES: dict[str, RoomSpec] = {
-    "office": RoomSpec(type="private_office", width_ft=10.0, depth_ft=12.0),
-    "meeting": RoomSpec(type="meeting_room", width_ft=20.0, depth_ft=15.0),
-    "huddle": RoomSpec(type="collaboration", width_ft=8.0, depth_ft=8.0),
-    "phone_booth": RoomSpec(type="phone_booth", width_ft=4.0, depth_ft=4.0),
-}
-
 
 class RoomRequest(BaseModel):
-    type: str = Field(pattern="^(office|meeting|huddle|phone_booth)$")
+    type: str  # any room catalog key or legacy alias (validated against catalog.py)
     count: int = Field(ge=0)
     placement: str = Field("flexible", pattern="^(window|core|flexible)$")
+
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if not is_valid_key(v):
+            raise ValueError(f"unknown room type {v!r}")
+        return v
 
 
 class DetailedProgram(BaseModel):
@@ -109,7 +107,7 @@ def _place_rooms(
     core: list[RoomSpec] = []
     flexible: list[RoomSpec] = []
     for req in program.rooms:
-        spec_room = _ROOM_TYPES[req.type]
+        spec_room = room_spec(req.type)
         n = max(0, round(req.count * density_scale)) if density_scale < 1.0 else req.count
         bucket = {"window": window, "core": core, "flexible": flexible}[req.placement]
         bucket += [spec_room] * n
@@ -146,7 +144,7 @@ def _place_rooms(
             placed_rooms += flex_int
 
     instances = [FurnitureInstance(r.type, r.x, r.y, r.w, r.h, r.rotation) for r in placed_rooms]
-    placed_by_type = _placed_by_detailed_type(placed_rooms)
+    placed_by_type = _placed_by_catalog_key(program, placed_rooms, density_scale)
     return instances, placed_by_type, occupied
 
 
@@ -177,16 +175,26 @@ def _subtract_placed(requested: list[RoomSpec], placed) -> list[RoomSpec]:
     return leftover
 
 
-# Reverse map instance type -> Detailed type for honest placed-vs-requested reporting.
-_INSTANCE_TO_DETAILED = {spec.type: name for name, spec in _ROOM_TYPES.items()}
+def _placed_by_catalog_key(program, placed, density_scale: float) -> dict[str, int]:
+    """Attribute placed rooms back to the catalog keys that asked for them — for honest reporting.
 
-
-def _placed_by_detailed_type(placed) -> dict[str, int]:
-    counts: dict[str, int] = {}
+    Several catalog keys share one instance type (e.g. office_exec and office_small are both
+    `private_office`), so the packers' instance-type tag can't tell them apart. We count placements
+    by instance type, then walk the requested keys (in request order) of each instance type and
+    assign placements greedily up to each key's (density-scaled) requested count.
+    """
+    placed_by_instance: dict[str, int] = {}
     for r in placed:
-        name = _INSTANCE_TO_DETAILED.get(r.type, r.type)
-        counts[name] = counts.get(name, 0) + 1
-    return counts
+        placed_by_instance[r.type] = placed_by_instance.get(r.type, 0) + 1
+
+    out: dict[str, int] = {}
+    for req in program.rooms:
+        inst = lookup(req.type).instance_type
+        want = max(0, round(req.count * density_scale)) if density_scale < 1.0 else req.count
+        give = min(want, placed_by_instance.get(inst, 0))
+        out[req.type] = out.get(req.type, 0) + give
+        placed_by_instance[inst] -= give
+    return out
 
 
 def _build_testfit(
@@ -234,7 +242,8 @@ def _honesty_notes(requested: dict[str, int], placed: dict[str, int]) -> list[st
         "Detailed test-fit: explicit requested room counts placed by stated preference "
         "(window=perimeter band, core=interior), then the open area filled with workstations.",
         "Procedural placement + Shapely constraint filter — every room is contained, clear of "
-        "core/columns, and non-overlapping. Deferred: door swings, corridors, egress, ADA.",
+        "core/columns, and non-overlapping; the open area is broken by a circulation spine and "
+        "cross-aisles. Deferred: door swings, code-exact egress/ADA compliance.",
     ]
     shortfalls = [
         f"{t} {placed.get(t, 0)}/{requested[t]}"

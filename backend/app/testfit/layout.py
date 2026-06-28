@@ -28,8 +28,9 @@ Program: counts are driven by headcount (given, or derived from usable area at ~
 and a zone mix (~40% workstations / 10% private offices / 20% meeting / 15% collaboration).
 These are reasonable deterministic heuristics, not an optimizer.
 
-Deferred (honest): cross-aisle egress spines, door swings/corridors, code/ADA compliance
-beyond aisle width and setback, acoustic/adjacency rules, skewed (non-orthogonal) walls.
+The open area is broken by a circulation spine + cross-aisles into legible neighborhoods.
+Deferred (honest): door swings, code-exact egress/ADA compliance beyond aisle/corridor width
+and setback, acoustic/adjacency rules, skewed (non-orthogonal) walls.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ class WorkstationSpec:
     aisle_ft: float = 3.0          # clear aisle between rows (ADA accessible route = 36in)
     perimeter_setback_ft: float = 3.0
     column_clearance_ft: float = 1.5
+    corridor_ft: float = 5.5       # primary circulation spine width (~5-6 ft per code/ADA)
+    neighborhood_ft: float = 40.0  # target open-block size between cross-aisles -> departments
 
 
 @dataclass
@@ -165,6 +168,52 @@ def derive_program(plan: PlanModel, program: ProgramSpec) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Circulation: carve a primary spine + cross-aisles so the open field reads as
+# legible neighborhoods around a corridor, not one solid block of desks.
+# ---------------------------------------------------------------------------
+
+def circulation_corridors(region, spec: WorkstationSpec) -> list[Polygon]:
+    """Derive circulation bands to subtract from the open workstation field.
+
+    A primary spine runs the full span of the region's longer axis, centred on the field, plus
+    evenly spaced cross-aisles along the longer axis that split the field into ~`neighborhood_ft`
+    departments. Bands are clipped to the region so they connect to the perimeter setback (the
+    inset boundary doubles as the perimeter route) and never sit over rooms/core/columns. Pure
+    geometry, deterministic — no desks land in the returned bands once they are subtracted.
+    """
+    if region.is_empty or region.area <= 0 or spec.corridor_ft <= 0:
+        return []
+    minx, miny, maxx, maxy = region.bounds
+    span_x, span_y = maxx - minx, maxy - miny
+    half = spec.corridor_ft / 2.0
+    bands: list[Polygon] = []
+
+    # Primary spine down the centre of the LONGER axis (a desk-free aisle through the field).
+    if span_x >= span_y:
+        cy = (miny + maxy) / 2.0
+        bands.append(box(minx, cy - half, maxx, cy + half))
+        long_lo, long_span = minx, span_x
+        cross_axis_horizontal = False
+    else:
+        cx = (minx + maxx) / 2.0
+        bands.append(box(cx - half, miny, cx + half, maxy))
+        long_lo, long_span = miny, span_y
+        cross_axis_horizontal = True
+
+    # Cross-aisles perpendicular to the spine, splitting the long axis into neighborhoods.
+    n_blocks = max(1, round(long_span / max(spec.neighborhood_ft, 1.0)))
+    for i in range(1, n_blocks):
+        pos = long_lo + long_span * i / n_blocks
+        if cross_axis_horizontal:
+            bands.append(box(minx, pos - half, maxx, pos + half))
+        else:
+            bands.append(box(pos - half, miny, pos + half, maxy))
+
+    clipped = [b.intersection(region) for b in bands]
+    return [c for c in clipped if not c.is_empty and c.area > 0]
+
+
+# ---------------------------------------------------------------------------
 # Workstation grid (v1, now run on a region with rooms subtracted)
 # ---------------------------------------------------------------------------
 
@@ -186,6 +235,10 @@ def _grid_layout(region_prepared, bounds, w: float, h: float, step_y: float,
 
 
 def _place_workstation_field(region, spec: WorkstationSpec) -> list[FurnitureInstance]:
+    if region.is_empty or region.area <= 0:
+        return []
+    for corridor in circulation_corridors(region, spec):
+        region = region.difference(corridor)
     if region.is_empty or region.area <= 0:
         return []
     prepared = prep(region)

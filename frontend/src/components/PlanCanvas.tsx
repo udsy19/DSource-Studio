@@ -3,7 +3,6 @@ import type {
   ExtractedLayout,
   FurnitureCategory,
   Instance,
-  InstanceType,
   Plan,
   WallType,
 } from "../types";
@@ -12,13 +11,18 @@ import { furnitureSymbol } from "./furnitureSymbols";
 // Two modes: the generated fit (plan + instances) and the user's REAL extracted layout.
 type Props = { plan: Plan; instances: Instance[] } | { layout: ExtractedLayout };
 
-// fill / stroke per instance type — restrained, ink + a single terracotta accent
-const STYLE: Record<InstanceType, { fill: string; stroke: string; dash?: string }> = {
-  workstation: { fill: "rgba(184,85,47,0.11)", stroke: "rgba(184,85,47,0.5)" },
-  private_office: { fill: "rgba(26,24,19,0.045)", stroke: "rgba(26,24,19,0.34)" },
-  meeting_room: { fill: "rgba(26,24,19,0.07)", stroke: "rgba(26,24,19,0.4)" },
-  collaboration: { fill: "rgba(184,85,47,0.05)", stroke: "rgba(184,85,47,0.34)", dash: "3 3" },
+// Generated-fit instance presentation: which furniture SYMBOL stands in for each program
+// type, whether the type reads as an ENCLOSED room (drawn with a room outline + small label),
+// and the category tint. Unknown types fall back to an open low box.
+type FitKind = { symbol: FurnitureCategory; tint: string; room?: string };
+const FIT: Record<string, FitKind> = {
+  workstation: { symbol: "desk", tint: "--furn-work" },
+  private_office: { symbol: "desk", tint: "--furn-work", room: "OFFICE" },
+  meeting_room: { symbol: "table", tint: "--furn-work", room: "MEETING" },
+  collaboration: { symbol: "sofa", tint: "--furn-seat" },
+  phone_booth: { symbol: "stool", tint: "--furn-storage", room: "BOOTH" },
 };
+const FIT_FALLBACK: FitKind = { symbol: "other", tint: "--furn-other" };
 
 // wall poché per type — fill token (the solid cut band), legend-swatch token, label, and
 // the assumed cut THICKNESS in feet (weight hierarchy: perimeter/core heaviest, glass thinnest).
@@ -132,21 +136,40 @@ function FitPlan({ plan, instances }: { plan: Plan; instances: Instance[] }) {
       ))}
 
       {instances.map((it, i) => {
-        const s = STYLE[it.type] ?? STYLE.workstation;
+        const kind = FIT[it.type] ?? FIT_FALLBACK;
+        // local 0..w/0..h origin at the footprint's top-left (world min-x / max-y), rotated
+        // about the centre — same convention as LayoutPlan's furniture so symbols read upright.
+        const ox = view.fx(it.x);
+        const oy = view.fy(it.y + it.h);
+        const cx = view.fx(it.x + it.w / 2);
+        const cy = view.fy(it.y + it.h / 2);
         return (
-          <rect
+          <g
             key={`i-${i}`}
-            x={view.fx(it.x)}
-            y={view.fy(it.y + it.h)}
-            width={it.w}
-            height={it.h}
-            fill={s.fill}
-            stroke={s.stroke}
-            strokeWidth={1}
-            strokeDasharray={s.dash}
-            vectorEffect="non-scaling-stroke"
-            rx={0.4}
-          />
+            transform={`translate(${ox} ${oy}) rotate(${-it.rotation} ${cx - ox} ${cy - oy})`}
+          >
+            {kind.room && (
+              <rect
+                x={0}
+                y={0}
+                width={it.w}
+                height={it.h}
+                fill="var(--room-fill)"
+                stroke="var(--room-line)"
+                strokeWidth={1.4}
+                vectorEffect="non-scaling-stroke"
+                rx={0.4}
+              />
+            )}
+            <g fill={`var(${kind.tint})`} fillOpacity={0.14}>
+              {furnitureSymbol(kind.symbol, it.w, it.h)}
+            </g>
+            {kind.room && (
+              <text className="fit-room-label" x={it.w / 2} y={it.h / 2} textAnchor="middle">
+                {kind.room}
+              </text>
+            )}
+          </g>
         );
       })}
 
