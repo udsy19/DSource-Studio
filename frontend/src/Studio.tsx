@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   downloadIfc,
+  downloadLayoutTakeoff,
   downloadReport,
-  downloadTakeoff,
   generateAlternatives,
   ingestCad,
   num,
@@ -167,11 +167,11 @@ export default function Studio() {
                 </button>
                 <button
                   className="export-btn"
-                  onClick={() => runExport("takeoff", () => downloadTakeoff(file!))}
+                  onClick={() => runExport("takeoff", () => downloadLayoutTakeoff(file!))}
                   disabled={!!exporting}
                 >
                   <span className="export-btn-label">Quantity takeoff</span>
-                  <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · BOM"}</span>
+                  <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
                 </button>
                 <button
                   className="export-btn"

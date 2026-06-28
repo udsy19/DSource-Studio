@@ -7,6 +7,7 @@ import type {
   Plan,
   WallType,
 } from "../types";
+import { furnitureSymbol } from "./furnitureSymbols";
 
 // Two modes: the generated fit (plan + instances) and the user's REAL extracted layout.
 type Props = { plan: Plan; instances: Instance[] } | { layout: ExtractedLayout };
@@ -19,15 +20,17 @@ const STYLE: Record<InstanceType, { fill: string; stroke: string; dash?: string 
   collaboration: { fill: "rgba(184,85,47,0.05)", stroke: "rgba(184,85,47,0.34)", dash: "3 3" },
 };
 
-// wall colour token + human label per type (drives both the plan strokes and the legend)
-const WALL: Record<WallType, { token: string; label: string; width: number; dash?: string }> = {
-  perimeter: { token: "--wall-perimeter", label: "Perimeter", width: 2 },
-  core: { token: "--wall-core", label: "Core", width: 2 },
-  drywall: { token: "--wall-drywall", label: "Drywall", width: 1.6 },
-  half_drywall: { token: "--wall-half-drywall", label: "Half-drywall", width: 1.4, dash: "4 2" },
-  glass: { token: "--wall-glass", label: "Glass", width: 1.4, dash: "1 2" },
-  door: { token: "--wall-door", label: "Door", width: 1.6 },
-  unknown: { token: "--wall-unknown", label: "Other", width: 1.2, dash: "2 3" },
+// wall poché per type — fill token (the solid cut band), legend-swatch token, label, and
+// the assumed cut THICKNESS in feet (weight hierarchy: perimeter/core heaviest, glass thinnest).
+// `door` is an opening, not a poché band — it draws as a swing, so it carries no fill.
+const WALL: Record<WallType, { fill: string; token: string; label: string; thickness: number }> = {
+  perimeter: { fill: "--poche-perimeter", token: "--wall-perimeter", label: "Perimeter", thickness: 0.8 },
+  core: { fill: "--poche-core", token: "--wall-core", label: "Core", thickness: 0.7 },
+  drywall: { fill: "--poche-drywall", token: "--wall-drywall", label: "Drywall", thickness: 0.4 },
+  half_drywall: { fill: "--poche-half-drywall", token: "--wall-half-drywall", label: "Half-drywall", thickness: 0.3 },
+  glass: { fill: "--poche-glass", token: "--wall-glass", label: "Glass", thickness: 0.18 },
+  door: { fill: "--wall-door", token: "--wall-door", label: "Door", thickness: 0.4 },
+  unknown: { fill: "--poche-unknown", token: "--wall-unknown", label: "Other", thickness: 0.3 },
 };
 
 // furniture footprint colour token by category
@@ -47,6 +50,46 @@ const FURN: Record<FurnitureCategory, string> = {
 };
 
 const PAD = 8; // feet of margin around the plate
+
+// A wall is a polyline; render each segment as a filled band `thickness` ft wide centred on
+// the segment so it reads as a solid cut element (poché). Returns one screen-space polygon
+// point string per segment, already y-flipped via the view mappers.
+function pocheBands(
+  points: [number, number][],
+  thickness: number,
+  fx: (x: number) => number,
+  fy: (y: number) => number,
+): string[] {
+  const half = thickness / 2;
+  const bands: string[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const [ax, ay] = points[i];
+    const [bx, by] = points[i + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    // unit normal in feet, then mapped to screen (fx/fy are translations/flips, so offsets map cleanly)
+    const nx = (-dy / len) * half;
+    const ny = (dx / len) * half;
+    const corners: [number, number][] = [
+      [ax + nx, ay + ny],
+      [bx + nx, by + ny],
+      [bx - nx, by - ny],
+      [ax - nx, ay - ny],
+    ];
+    bands.push(corners.map(([x, y]) => `${fx(x).toFixed(2)},${fy(y).toFixed(2)}`).join(" "));
+  }
+  return bands;
+}
+
+// Pick a round scale-bar length (ft) that's ~1/6 of the plate width: 1,2,5,10,20,50…
+function niceScaleFeet(span: number): number {
+  const target = span / 6;
+  const pow = Math.pow(10, Math.floor(Math.log10(target)));
+  for (const m of [1, 2, 5]) if (m * pow >= target) return m * pow;
+  return 10 * pow;
+}
 
 function useView(minX: number, minY: number, maxX: number, maxY: number) {
   return useMemo(() => {
@@ -170,63 +213,82 @@ function LayoutPlan({ layout }: { layout: ExtractedLayout }) {
           );
         })}
 
-        {/* furniture footprints — rect at (x,y) by (w,h), rotated about its centre.
-            Mullions (glazing framing) are drawn by the glass panels, not as separate footprints. */}
+        {/* furniture — recognizable top-down plan symbols, line-drawing first with a soft
+            category tint. Each symbol is drawn in local 0..w / 0..h coords inside a <g> that
+            translates to the footprint's top-left corner (world min-x / max-y) and rotates about
+            the centre. Mullions are drawn by the glass panels, not as separate footprints. */}
         {layout.furniture.filter((f) => f.category !== "mullion").map((f, i) => {
+          const ox = view.fx(f.x);
+          const oy = view.fy(f.y + f.h);
           const cx = view.fx(f.x + f.w / 2);
           const cy = view.fy(f.y + f.h / 2);
-          const color = `var(${FURN[f.category] ?? "--furn-other"})`;
+          const tint = `var(${FURN[f.category] ?? "--furn-other"})`;
           return (
-            <rect
+            <g
               key={`f-${i}`}
-              x={view.fx(f.x)}
-              y={view.fy(f.y + f.h)}
-              width={f.w}
-              height={f.h}
-              fill={color}
-              fillOpacity={0.16}
-              stroke={color}
-              strokeOpacity={0.7}
-              strokeWidth={1}
-              vectorEffect="non-scaling-stroke"
-              rx={0.3}
-              transform={`rotate(${-f.rotation} ${cx} ${cy})`}
+              transform={`translate(${ox} ${oy}) rotate(${-f.rotation} ${cx - ox} ${cy - oy})`}
+              fill={tint}
+              fillOpacity={0.14}
             >
               <title>{`${f.category}${f.brand ? ` · ${f.brand}` : ""}${f.model ? ` ${f.model}` : ""}`}</title>
-            </rect>
+              {furnitureSymbol(f.category, f.w, f.h)}
+            </g>
           );
         })}
 
-        {/* doors — accent marker on the threshold */}
-        {layout.doors.map((d, i) => (
-          <rect
-            key={`d-${i}`}
-            x={view.fx(d.x) - d.width / 2}
-            y={view.fy(d.y) - 0.3}
-            width={d.width}
-            height={0.6}
-            fill="var(--wall-door)"
-            transform={`rotate(${-d.rotation} ${view.fx(d.x)} ${view.fy(d.y)})`}
-          />
-        ))}
+        {/* doors — a proper architectural swing: the leaf line + a quarter-circle arc.
+            (x,y) is the hinge/threshold; rotation orients the opening. */}
+        {layout.doors.map((d, i) => {
+          const hx = view.fx(d.x);
+          const hy = view.fy(d.y);
+          return (
+            <g
+              key={`d-${i}`}
+              transform={`translate(${hx} ${hy}) rotate(${-d.rotation})`}
+              stroke="var(--wall-door)"
+              vectorEffect="non-scaling-stroke"
+              fill="none"
+            >
+              <line x1={0} y1={0} x2={d.width} y2={0} vectorEffect="non-scaling-stroke" />
+              <path
+                d={`M ${d.width} 0 A ${d.width} ${d.width} 0 0 1 0 ${d.width}`}
+                strokeOpacity={0.5}
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          );
+        })}
 
-        {/* walls — coloured by type, drawn last on top */}
-        {layout.walls.map((wall, i) => {
+        {/* walls — filled poché bands, drawn last on top. Door segments are openings (no fill);
+            their swing is drawn above. Weight hierarchy comes from the per-type fill + thickness. */}
+        {layout.walls.filter((w) => w.type !== "door").map((wall, i) => {
           const s = WALL[wall.type] ?? WALL.unknown;
           return (
-            <polyline
-              key={`w-${i}`}
-              points={polyline(wall.points)}
-              fill="none"
-              stroke={`var(${s.token})`}
-              strokeWidth={s.width}
-              strokeDasharray={s.dash}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
+            <g key={`w-${i}`}>
+              {pocheBands(wall.points, s.thickness, view.fx, view.fy).map((pts, j) => (
+                <polygon key={j} points={pts} fill={`var(${s.fill})`} />
+              ))}
+            </g>
           );
         })}
+
+        {/* scale bar — a quiet ruled bar of round length in the bottom-right corner */}
+        {(() => {
+          const ft = niceScaleFeet(maxx - minx);
+          const y = view.h - PAD * 0.55;
+          const x1 = view.w - PAD - ft;
+          const x2 = view.w - PAD;
+          return (
+            <g stroke="var(--scale-bar)" vectorEffect="non-scaling-stroke">
+              <line x1={x1} y1={y} x2={x2} y2={y} vectorEffect="non-scaling-stroke" />
+              <line x1={x1} y1={y - 0.6} x2={x1} y2={y + 0.6} vectorEffect="non-scaling-stroke" />
+              <line x1={x2} y1={y - 0.6} x2={x2} y2={y + 0.6} vectorEffect="non-scaling-stroke" />
+              <text className="scale-label" x={(x1 + x2) / 2} y={y - 1} textAnchor="middle">
+                {ft} ft
+              </text>
+            </g>
+          );
+        })()}
       </svg>
 
       {/* wall-type legend — only the types actually present */}

@@ -71,4 +71,19 @@
   --furn-storage:      #9a958c;   /* storage / panel / tv — light grey */
   --furn-green:        #8a9c7c;   /* planter — soft foliage */
   --furn-other:        #b3ad9e;   /* other — faint */
+
+  /* furniture plan-symbol linework — ink hairlines over the soft category tint */
+  --furn-line:         rgba(26, 24, 19, 0.62);
+  --furn-line-faint:   rgba(26, 24, 19, 0.28);   /* swing arcs, glass panels, secondary marks */
+
+  /* wall poché fills — solid cut elements, weight hierarchy heavier→lighter */
+  --poche-perimeter:   rgba(26, 24, 19, 0.92);
+  --poche-core:        rgba(60, 56, 47, 0.88);
+  --poche-drywall:     rgba(111, 106, 94, 0.78);
+  --poche-half-drywall:rgba(154, 147, 133, 0.55);
+  --poche-glass:       rgba(124, 151, 160, 0.30);
+  --poche-unknown:     rgba(185, 179, 163, 0.45);
+
+  /* scale bar */
+  --scale-bar:         var(--ink-2);
 }

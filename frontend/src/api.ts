@@ -125,6 +125,16 @@ export async function downloadTakeoff(file: File, opts?: AltOpts): Promise<void>
   );
 }
 
+// Qbiq-grade takeoff from the REAL extracted layout (the multi-sheet workbook).
+export async function downloadLayoutTakeoff(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  await downloadBlob(
+    await fetch("/api/ingest/takeoff", { method: "POST", body: fd }),
+    "quantity-takeoff.xlsx",
+  );
+}
+
 export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),
