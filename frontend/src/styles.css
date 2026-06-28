@@ -236,9 +236,15 @@ header.bar {
 
 .brief-go { width: 100%; margin-top: var(--s1); }
 
-/* detailed-mode room requests — count stepper + placement per type */
-.room-reqs { display: flex; flex-direction: column; gap: var(--s4); }
+/* detailed-mode room requests — catalog grouped by family, count stepper + placement per type */
+.room-family { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
+.room-family-label {
+  font: 600 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.room-reqs { display: flex; flex-direction: column; gap: var(--s3); }
 .room-req { display: flex; flex-direction: column; gap: var(--s2); }
+.room-req[data-active="false"] .brief-label { color: var(--muted); }
 .room-req-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .room-stepper {
   display: inline-flex; align-items: center; gap: var(--s2);

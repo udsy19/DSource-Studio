@@ -193,7 +193,15 @@ export interface ConceptProgram {
 }
 
 // Detailed-mode program — explicit room-type counts + placement preference per type.
-export type RoomType = "office" | "meeting" | "huddle" | "phone_booth";
+// Room catalog keys mirror backend app/testfit/catalog.py; the backend validates + aliases, so
+// this union is a convenience for the form (legacy office/meeting kept for back-compat).
+export type RoomType =
+  | "office_exec" | "office_large" | "office_medium" | "office_small" | "office_focus"
+  | "team_2" | "team_4" | "team_6" | "team_8"
+  | "conf_board" | "conf_xl" | "conf_large" | "conf_medium" | "conf_small"
+  | "huddle" | "phone_booth" | "focus_room"
+  | "reception" | "kitchen" | "wellness" | "copy_print" | "storage"
+  | "office" | "meeting";
 export type Placement = "window" | "core" | "flexible";
 
 export interface RoomRequest {

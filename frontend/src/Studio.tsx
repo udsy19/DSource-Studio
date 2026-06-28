@@ -67,12 +67,59 @@ const DEFAULT_CONCEPT: ConceptProgram = {
   closed_ratio: 0.2,
 };
 
-// Detailed mode — room types in reading order, with labels and a sensible starter program.
-const ROOM_TYPES: { type: RoomType; label: string }[] = [
-  { type: "office", label: "Office" },
-  { type: "meeting", label: "Meeting room" },
-  { type: "huddle", label: "Huddle" },
-  { type: "phone_booth", label: "Phone booth" },
+// Detailed mode — the room catalog (mirrors backend app/testfit/catalog.py), grouped by family.
+// Each entry carries the placement that suits it; count 0 means "not requested".
+const ROOM_CATALOG: {
+  family: string;
+  rooms: { type: RoomType; label: string; placement: Placement }[];
+}[] = [
+  {
+    family: "Offices",
+    rooms: [
+      { type: "office_exec", label: "Executive", placement: "window" },
+      { type: "office_large", label: "Large", placement: "window" },
+      { type: "office_medium", label: "Medium", placement: "window" },
+      { type: "office_small", label: "Small", placement: "window" },
+      { type: "office_focus", label: "Focus", placement: "flexible" },
+    ],
+  },
+  {
+    family: "Team rooms",
+    rooms: [
+      { type: "team_2", label: "Team · 2", placement: "window" },
+      { type: "team_4", label: "Team · 4", placement: "window" },
+      { type: "team_6", label: "Team · 6", placement: "flexible" },
+      { type: "team_8", label: "Team · 8", placement: "flexible" },
+    ],
+  },
+  {
+    family: "Conference",
+    rooms: [
+      { type: "conf_board", label: "Boardroom", placement: "flexible" },
+      { type: "conf_xl", label: "XL conference", placement: "flexible" },
+      { type: "conf_large", label: "Large", placement: "flexible" },
+      { type: "conf_medium", label: "Medium", placement: "flexible" },
+      { type: "conf_small", label: "Small / meeting", placement: "flexible" },
+    ],
+  },
+  {
+    family: "Collaboration",
+    rooms: [
+      { type: "huddle", label: "Huddle", placement: "core" },
+      { type: "phone_booth", label: "Phone booth", placement: "core" },
+      { type: "focus_room", label: "Focus room", placement: "flexible" },
+    ],
+  },
+  {
+    family: "Amenities",
+    rooms: [
+      { type: "reception", label: "Reception", placement: "window" },
+      { type: "kitchen", label: "Kitchen / pantry", placement: "flexible" },
+      { type: "wellness", label: "Wellness", placement: "core" },
+      { type: "copy_print", label: "Copy / print", placement: "core" },
+      { type: "storage", label: "Storage / IT", placement: "core" },
+    ],
+  },
 ];
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
@@ -82,8 +129,8 @@ const PLACEMENTS: { value: Placement; label: string }[] = [
 
 const DEFAULT_DETAILED: DetailedProgram = {
   rooms: [
-    { type: "office", count: 4, placement: "window" },
-    { type: "meeting", count: 2, placement: "flexible" },
+    { type: "office_medium", count: 4, placement: "window" },
+    { type: "conf_small", count: 2, placement: "flexible" },
     { type: "huddle", count: 2, placement: "core" },
     { type: "phone_booth", count: 1, placement: "core" },
   ],
@@ -543,56 +590,75 @@ function DetailedForm({
   hasVersions: boolean;
 }) {
   const sizeValue = `${program.desk_width_cm}x${program.desk_depth_cm}`;
-  const setRoom = (type: RoomType, patch: Partial<DetailedProgram["rooms"][number]>) =>
+  // Upsert a room by type (count 0 prunes it); placement defaults to the catalog entry's.
+  const setCount = (type: RoomType, fallback: Placement, count: number) => {
+    const others = program.rooms.filter((r) => r.type !== type);
+    const existing = program.rooms.find((r) => r.type === type);
     onChange({
       ...program,
-      rooms: program.rooms.map((r) => (r.type === type ? { ...r, ...patch } : r)),
+      rooms:
+        count > 0
+          ? [...others, { type, count, placement: existing?.placement ?? fallback }]
+          : others,
+    });
+  };
+  const setPlacement = (type: RoomType, placement: Placement) =>
+    onChange({
+      ...program,
+      rooms: program.rooms.map((r) => (r.type === type ? { ...r, placement } : r)),
     });
 
   return (
     <div className="brief">
       <Eyebrow style={{ display: "block", marginBottom: 12 }}>Program · rooms</Eyebrow>
 
-      <div className="room-reqs">
-        {ROOM_TYPES.map(({ type, label }) => {
-          const room = program.rooms.find((r) => r.type === type);
-          if (!room) return null;
-          return (
-            <div className="room-req" key={type}>
-              <div className="room-req-head">
-                <span className="brief-label">{label}</span>
-                <div className="room-stepper" role="group" aria-label={`${label} count`}>
-                  <button
-                    type="button"
-                    className="room-step"
-                    aria-label={`Fewer ${label}`}
-                    disabled={room.count <= 0}
-                    onClick={() => setRoom(type, { count: Math.max(0, room.count - 1) })}
-                  >
-                    −
-                  </button>
-                  <span className="room-count" aria-live="polite">
-                    {num(room.count)}
-                  </span>
-                  <button
-                    type="button"
-                    className="room-step"
-                    aria-label={`More ${label}`}
-                    onClick={() => setRoom(type, { count: room.count + 1 })}
-                  >
-                    +
-                  </button>
+      {ROOM_CATALOG.map(({ family, rooms }) => (
+        <div className="room-family" key={family}>
+          <span className="room-family-label">{family}</span>
+          <div className="room-reqs">
+            {rooms.map(({ type, label, placement }) => {
+              const room = program.rooms.find((r) => r.type === type);
+              const count = room?.count ?? 0;
+              return (
+                <div className="room-req" key={type} data-active={count > 0}>
+                  <div className="room-req-head">
+                    <span className="brief-label">{label}</span>
+                    <div className="room-stepper" role="group" aria-label={`${label} count`}>
+                      <button
+                        type="button"
+                        className="room-step"
+                        aria-label={`Fewer ${label}`}
+                        disabled={count <= 0}
+                        onClick={() => setCount(type, placement, Math.max(0, count - 1))}
+                      >
+                        −
+                      </button>
+                      <span className="room-count" aria-live="polite">
+                        {num(count)}
+                      </span>
+                      <button
+                        type="button"
+                        className="room-step"
+                        aria-label={`More ${label}`}
+                        onClick={() => setCount(type, placement, count + 1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  {count > 0 && (
+                    <Segmented
+                      value={room?.placement ?? placement}
+                      onChange={(v) => setPlacement(type, v)}
+                      options={PLACEMENTS}
+                    />
+                  )}
                 </div>
-              </div>
-              <Segmented
-                value={room.placement}
-                onChange={(v) => setRoom(type, { placement: v })}
-                options={PLACEMENTS}
-              />
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
 
       <div className="brief-field">
         <span className="brief-label">Desk type</span>
