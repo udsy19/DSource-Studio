@@ -15,8 +15,9 @@ type FitProps = {
   instances: Instance[];
   pinnedKeys?: Set<string>;
   onTogglePin?: (it: Instance) => void;
+  compact?: boolean; // a contained, non-interactive mini-plan (version thumbnails) — no pan/zoom chrome
 };
-type Props = FitProps | { layout: ExtractedLayout };
+type Props = FitProps | { layout: ExtractedLayout; compact?: boolean };
 
 // Generated-fit instance presentation: which furniture SYMBOL stands in for each program
 // type, whether the type reads as an ENCLOSED room (drawn with a room outline + small label),
@@ -379,6 +380,15 @@ type PlanApi = {
 
 // Shared sheet shell for both plans: the pan/zoom <svg>, the drafted sheet furniture, the hover
 // room tag, and the pan/zoom hint + reset control. `draw` paints the plan body inside the transform.
+const NOOP_ROOM = {
+  onPointerEnter: () => {},
+  onPointerMove: () => {},
+  onPointerLeave: () => {},
+  onFocus: () => {},
+  onBlur: () => {},
+};
+const STATIC_API: PlanApi = { didDrag: () => false, bindRoom: () => NOOP_ROOM };
+
 function PlanStage({
   view,
   span,
@@ -386,6 +396,7 @@ function PlanStage({
   kind,
   draw,
   overlay,
+  compact,
 }: {
   view: View;
   span: number;
@@ -393,7 +404,24 @@ function PlanStage({
   kind: string;
   draw: (api: PlanApi) => ReactNode;
   overlay?: ReactNode;
+  compact?: boolean;
 }) {
+  // Version thumbnails: a plain, contained, non-interactive mini-plan — no absolute viewport, no
+  // pan/zoom, no sheet chrome — so many of them can sit in the side panel without stacking.
+  if (compact) {
+    return (
+      <svg
+        className="plan-static"
+        viewBox={`0 0 ${view.w} ${view.h}`}
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+      >
+        <PlanDefs />
+        <g>{draw(STATIC_API)}</g>
+      </svg>
+    );
+  }
+
   const pz = usePanZoom(view.w, view.h);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [tag, setTag] = useState<RoomTag | null>(null);
@@ -457,7 +485,7 @@ function PlanStage({
 }
 
 export default function PlanCanvas(props: Props) {
-  if ("layout" in props) return <LayoutPlan layout={props.layout} />;
+  if ("layout" in props) return <LayoutPlan layout={props.layout} compact={props.compact} />;
   return <FitPlan {...props} />;
 }
 
@@ -466,7 +494,7 @@ export default function PlanCanvas(props: Props) {
    walls (reusing pocheBands), open furniture is hairline ink contained in its footprint, and
    every enclosed room is inset + clipped so no chair mark ever crosses a wall. Enclosed rooms
    stay pinnable for the iterate loop. */
-function FitPlan({ plan, instances, pinnedKeys, onTogglePin }: FitProps) {
+function FitPlan({ plan, instances, pinnedKeys, onTogglePin, compact }: FitProps) {
   const xs = plan.boundary.map((p) => p[0]);
   const ys = plan.boundary.map((p) => p[1]);
   const minX = Math.min(...xs);
@@ -483,7 +511,7 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin }: FitProps) {
       : pts;
 
   return (
-    <PlanStage view={view} span={maxX - minX} title="TEST-FIT" kind="SPACE PLAN" draw={(api) => (
+    <PlanStage view={view} span={maxX - minX} title="TEST-FIT" kind="SPACE PLAN" compact={compact} draw={(api) => (
     <>
       {/* cores — faint structural fill ringed by a heavy core-poché wall */}
       {plan.cores.map((c, i) => (
@@ -612,7 +640,7 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin }: FitProps) {
 }
 
 /* ── real extracted-layout plan ── */
-function LayoutPlan({ layout }: { layout: ExtractedLayout }) {
+function LayoutPlan({ layout, compact }: { layout: ExtractedLayout; compact?: boolean }) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const view = useView(minx, miny, maxx, maxy);
   const usedTypes = useMemo(
@@ -652,6 +680,7 @@ function LayoutPlan({ layout }: { layout: ExtractedLayout }) {
       span={maxx - minx}
       title={sheetName(layout.source)}
       kind="EXTRACTED LAYOUT"
+      compact={compact}
       overlay={
         // wall-type legend — only the types actually present
         <ul className="wall-legend" aria-label="Wall types">

@@ -940,7 +940,7 @@ function VersionCard({
       onClick={onSelect}
     >
       <span className="version-thumb">
-        <PlanCanvas plan={plan} instances={alt.testfit.instances} />
+        <PlanCanvas plan={plan} instances={alt.testfit.instances} compact />
       </span>
       <span className="version-meta">
         <span className="version-seats">
