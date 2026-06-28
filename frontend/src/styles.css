@@ -100,6 +100,26 @@ header.bar {
 .scale-label { font-family: var(--sans); font-size: 1.6px; fill: var(--ink-2);
   letter-spacing: 0.02em; pointer-events: none; }
 
+/* drafted wall edge — a crisp hairline on the cut face of every poché band */
+.poche-band { stroke: var(--poche-edge); stroke-width: 0.5px; }
+
+/* drawing sheet — inner frame, refined scale bar, north arrow, corner title block */
+.sheet-frame { stroke: var(--sheet-frame); stroke-width: 1px; }
+.scale-bar-mark .scale-fill { fill: var(--ink-2); }
+.scale-bar-mark .scale-frame { stroke: var(--scale-bar); stroke-width: 1px; }
+.north-arrow .north-mark { fill: var(--ink-2); stroke: var(--ink-2); stroke-width: 0.75px;
+  stroke-linejoin: round; }
+.north-arrow .north-label { font-family: var(--sans); font-size: 1.8px; font-weight: 600;
+  fill: var(--ink-2); letter-spacing: 0.04em; pointer-events: none; }
+.title-block .title-box,
+.title-block .title-rule { stroke: var(--title-block); stroke-width: 1px; }
+.title-block .title-eyebrow { font-family: var(--sans); font-size: 1.25px; font-weight: 600;
+  fill: var(--muted); letter-spacing: var(--tracking-eyebrow); pointer-events: none; }
+.title-block .title-name { font-family: var(--serif); font-size: 2.6px; fill: var(--ink);
+  pointer-events: none; }
+.title-block .title-meta { font-family: var(--sans); font-size: 1.2px; fill: var(--ink-2);
+  letter-spacing: 0.03em; pointer-events: none; }
+
 /* generated-fit room labels (OFFICE / MEETING / BOOTH) — small uppercase, centred in the room */
 .fit-room-label { font-family: var(--sans); font-size: 1.5px; font-weight: 600;
   fill: var(--muted); letter-spacing: 0.08em; pointer-events: none; }

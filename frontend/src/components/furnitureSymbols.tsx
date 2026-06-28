@@ -14,8 +14,10 @@ import type { FurnitureCategory } from "../types";
 const STROKE = "var(--furn-line)";
 const STROKE_FAINT = "var(--furn-line-faint)";
 
-// shared hairline props for every drawn primitive
+// shared hairline props: `line` is pure linework (no fill); `body` lets the primary footprint
+// shape inherit the caller's soft category tint so symbols read richer than bare outlines.
 const line = { stroke: STROKE, vectorEffect: "non-scaling-stroke" as const, fill: "none" };
+const body = { stroke: STROKE, vectorEffect: "non-scaling-stroke" as const };
 
 function chair(w: number, h: number): ReactNode {
   // seat square inset from the footprint + a back bar along the rear (top) edge
@@ -29,9 +31,9 @@ function chair(w: number, h: number): ReactNode {
         width={w - inset * 2}
         height={h - inset * 2 - backH}
         rx={Math.min(w, h) * 0.12}
-        {...line}
+        {...body}
       />
-      <rect x={inset} y={inset} width={w - inset * 2} height={backH} rx={backH * 0.4} {...line} />
+      <rect x={inset} y={inset} width={w - inset * 2} height={backH} rx={backH * 0.4} {...body} />
     </>
   );
 }
@@ -42,17 +44,20 @@ function desk(w: number, h: number): ReactNode {
   const monH = h * 0.12;
   const chairW = w * 0.34;
   const chairH = h * 0.28;
+  const kbW = w * 0.4;
+  const kbY = h * 0.62 - h * 0.14;
   return (
     <>
-      <rect x={0} y={0} width={w} height={h * 0.62} {...line} />
-      <rect x={(w - monW) / 2} y={0} width={monW} height={monH} {...line} />
+      <rect x={0} y={0} width={w} height={h * 0.62} {...body} />
+      <rect x={(w - monW) / 2} y={0} width={monW} height={monH} {...body} />
+      <rect x={(w - kbW) / 2} y={kbY} width={kbW} height={h * 0.08} rx={h * 0.02} {...line} />
       <rect
         x={(w - chairW) / 2}
         y={h - chairH}
         width={chairW}
         height={chairH}
         rx={Math.min(w, h) * 0.1}
-        {...line}
+        {...body}
       />
     </>
   );
@@ -75,7 +80,7 @@ function table(w: number, h: number): ReactNode {
   }
   return (
     <>
-      <rect x={0} y={0} width={w} height={h} rx={r} {...line} />
+      <rect x={0} y={0} width={w} height={h} rx={r} {...body} />
       {marks}
     </>
   );
@@ -94,7 +99,7 @@ function sofa(w: number, h: number): ReactNode {
   }
   return (
     <>
-      <rect x={0} y={0} width={w} height={h} rx={Math.min(w, h) * 0.12} {...line} />
+      <rect x={0} y={0} width={w} height={h} rx={Math.min(w, h) * 0.12} {...body} />
       <line x1={0} y1={back} x2={w} y2={back} {...line} />
       <line x1={arm} y1={back} x2={arm} y2={h} {...line} />
       <line x1={w - arm} y1={back} x2={w - arm} y2={h} {...line} />
@@ -104,7 +109,7 @@ function sofa(w: number, h: number): ReactNode {
 }
 
 function stool(w: number, h: number): ReactNode {
-  return <circle cx={w / 2} cy={h / 2} r={Math.min(w, h) / 2} {...line} />;
+  return <circle cx={w / 2} cy={h / 2} r={Math.min(w, h) / 2} {...body} />;
 }
 
 function tv(w: number, h: number): ReactNode {
@@ -112,7 +117,7 @@ function tv(w: number, h: number): ReactNode {
   const screenH = Math.max(h * 0.4, Math.min(w, h) * 0.5);
   return (
     <>
-      <rect x={0} y={0} width={w} height={screenH} {...line} />
+      <rect x={0} y={0} width={w} height={screenH} {...body} />
       <line x1={w / 2} y1={screenH} x2={w / 2} y2={h} {...line} />
     </>
   );
@@ -123,7 +128,7 @@ function storage(w: number, h: number): ReactNode {
   const reach = Math.min(w, h * 1.6);
   return (
     <>
-      <rect x={0} y={0} width={w} height={h} {...line} />
+      <rect x={0} y={0} width={w} height={h} {...body} />
       <path d={`M 0 ${h} L ${reach} ${h}`} {...line} />
       <path d={`M ${reach} ${h} A ${reach} ${reach} 0 0 0 0 ${h - reach}`} stroke={STROKE_FAINT} vectorEffect="non-scaling-stroke" fill="none" />
     </>
@@ -136,7 +141,7 @@ function planter(w: number, h: number): ReactNode {
   const r = Math.min(w, h) / 2;
   return (
     <>
-      <circle cx={cx} cy={cy} r={r} {...line} />
+      <circle cx={cx} cy={cy} r={r} {...body} />
       <circle cx={cx} cy={cy} r={r * 0.45} stroke={STROKE_FAINT} vectorEffect="non-scaling-stroke" fill="none" />
     </>
   );
@@ -168,7 +173,7 @@ function panel(w: number, h: number): ReactNode {
 }
 
 function other(w: number, h: number): ReactNode {
-  return <rect x={0} y={0} width={w} height={h} rx={Math.min(w, h) * 0.08} {...line} />;
+  return <rect x={0} y={0} width={w} height={h} rx={Math.min(w, h) * 0.08} {...body} />;
 }
 
 const BUILDERS: Record<FurnitureCategory, (w: number, h: number) => ReactNode> = {

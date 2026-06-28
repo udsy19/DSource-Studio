@@ -65,6 +65,12 @@
   --room-fill:         rgba(26, 24, 19, 0.035);
   --room-line:         rgba(26, 24, 19, 0.16);
 
+  /* room family tints — whisper-subtle, paper-toned; distinguish program families */
+  --room-office:       rgba(138, 132, 120, 0.07);   /* private office — warm grey wash */
+  --room-meeting:      rgba(124, 151, 160, 0.08);   /* meeting / conference — cool slate wash */
+  --room-collab:       rgba(185, 138, 114, 0.07);   /* collaboration / focus — soft terracotta wash */
+  --room-amenity:      rgba(138, 156, 124, 0.06);   /* amenity / service — soft foliage wash */
+
   /* furniture footprints by category — quiet ink family, one soft warm tint for seating */
   --furn-seat:         #b98a72;   /* chair / sofa / stool — soft terracotta, not full accent */
   --furn-work:         #8a8478;   /* desk / workstation / table — warm grey */
@@ -86,4 +92,10 @@
 
   /* scale bar */
   --scale-bar:         var(--ink-2);
+
+  /* ── plan sheet — drawing frame, title block, drafted edges, room lift ── */
+  --plan-shadow:       rgba(60, 56, 47, 0.20);   /* warm ink drop-shadow lifting rooms off paper */
+  --sheet-frame:       rgba(26, 24, 19, 0.42);   /* thin inner border framing the sheet */
+  --poche-edge:        rgba(26, 24, 19, 0.20);   /* drafted hairline on the cut face of wall bands */
+  --title-block:       rgba(26, 24, 19, 0.55);   /* title-block border + rule */
 }
