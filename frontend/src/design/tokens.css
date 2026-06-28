@@ -65,10 +65,10 @@
   --room-fill:         rgba(26, 24, 19, 0.035);
   --room-line:         rgba(26, 24, 19, 0.16);
 
-  /* furniture footprints by category — ink family + one accent for seating */
-  --furn-seat:         #b8552f;   /* chair / sofa / stool — accent */
-  --furn-work:         #6f6a5e;   /* desk / workstation / table */
-  --furn-storage:      #54524b;   /* storage / panel / tv */
-  --furn-green:        #6f8a5e;   /* planter — the only foliage tint */
-  --furn-other:        #97917f;   /* other — muted */
+  /* furniture footprints by category — quiet ink family, one soft warm tint for seating */
+  --furn-seat:         #b98a72;   /* chair / sofa / stool — soft terracotta, not full accent */
+  --furn-work:         #8a8478;   /* desk / workstation / table — warm grey */
+  --furn-storage:      #9a958c;   /* storage / panel / tv — light grey */
+  --furn-green:        #8a9c7c;   /* planter — soft foliage */
+  --furn-other:        #b3ad9e;   /* other — faint */
 }

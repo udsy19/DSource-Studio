@@ -93,11 +93,10 @@ header.bar {
 /* real extracted-layout 2D plan */
 .layout-plan { position: absolute; inset: 0; animation: fade 0.5s ease both; }
 .layout-plan svg { width: 100%; height: 100%; max-height: 78vh; overflow: visible; }
-.layout-plan .room-label { font-family: var(--sans); font-size: 4px; font-weight: 600;
-  fill: var(--ink-2); letter-spacing: 0.01em; pointer-events: none;
-  text-transform: uppercase; }
+.layout-plan .room-label { font-family: var(--sans); font-size: 1.9px; font-weight: 600;
+  fill: var(--ink-2); letter-spacing: 0.02em; pointer-events: none; }
 .layout-plan .room-label .room-area { font-family: var(--serif); font-weight: 400;
-  font-size: 4.5px; text-transform: none; fill: var(--accent); }
+  font-size: 1.8px; fill: var(--accent); }
 .wall-legend { position: absolute; left: 24px; bottom: 22px; z-index: 6; margin: 0;
   list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 12px 16px;
   background: rgba(244, 241, 234, 0.82); backdrop-filter: blur(6px);
