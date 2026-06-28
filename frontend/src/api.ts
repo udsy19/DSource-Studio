@@ -150,6 +150,21 @@ export async function generateDetailed(
   return res.json();
 }
 
+// Iterate loop: regenerate Detailed versions from the prior version's plan, keeping pinned rooms.
+export async function iterateDetailed(body: {
+  plan: import("./types").Plan;
+  program: import("./types").DetailedProgram;
+  locked: import("./types").Instance[];
+}): Promise<import("./types").AlternativesResponse> {
+  const res = await fetch("/api/generate/detailed/iterate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 export async function downloadTakeoff(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/takeoff", { method: "POST", body: planForm(file, opts) }),

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   downloadIfc,
   downloadIfcFromFit,
@@ -9,10 +9,11 @@ import {
   generateDetailed,
   generateFromConcept,
   ingestCad,
+  iterateDetailed,
   num,
 } from "./api";
 import Dropzone from "./components/Dropzone";
-import PlanCanvas from "./components/PlanCanvas";
+import PlanCanvas, { instanceKey } from "./components/PlanCanvas";
 import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
 import type {
@@ -20,6 +21,7 @@ import type {
   ConceptProgram,
   DetailedProgram,
   ExtractedLayout,
+  Instance,
   Metrics,
   Placement,
   Plan,
@@ -152,6 +154,7 @@ export default function Studio() {
   const [detailed, setDetailed] = useState<DetailedProgram>(DEFAULT_DETAILED);
   const [versions, setVersions] = useState<{ plan: Plan; alternatives: Alternative[] } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<Instance[]>([]); // Detailed iterate: rooms kept across regenerations
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -179,6 +182,7 @@ export default function Studio() {
     setErr(null);
     setVersions(null);
     setSelectedId(null);
+    setPinned([]);
     setFile(f);
     try {
       // Generate scored test-fit versions from the plate + the program (Concept brief or the
@@ -195,6 +199,31 @@ export default function Studio() {
       setBusy(false);
     }
   }
+
+  // Iterate: regenerate Detailed versions keeping the pinned rooms (they persist at exact coords).
+  async function regenerate() {
+    if (!versions) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await iterateDetailed({ plan: versions.plan, program: detailed, locked: pinned });
+      setVersions(res);
+      setSelectedId(res.alternatives[0]?.id ?? null);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const togglePin = (it: Instance) => {
+    const key = instanceKey(it);
+    setPinned((prev) =>
+      prev.some((p) => instanceKey(p) === key) ? prev.filter((p) => instanceKey(p) !== key) : [...prev, it],
+    );
+  };
+  const pinnedKeys = useMemo(() => new Set(pinned.map(instanceKey)), [pinned]);
+  const canPin = studioMode === "generate" && genMode === "detailed";
 
   async function runExport(kind: string, fn: () => Promise<void>) {
     if (!file) return;
@@ -266,7 +295,12 @@ export default function Studio() {
             {view === "space" ? (
               <SpaceView plan={versions.plan} instances={selected.testfit.instances} />
             ) : (
-              <PlanCanvas plan={versions.plan} instances={selected.testfit.instances} />
+              <PlanCanvas
+                plan={versions.plan}
+                instances={selected.testfit.instances}
+                pinnedKeys={canPin ? pinnedKeys : undefined}
+                onTogglePin={canPin ? togglePin : undefined}
+              />
             )}
           </>
         ) : (
@@ -421,6 +455,42 @@ export default function Studio() {
               selectedId={selectedId}
               onSelect={setSelectedId}
             />
+
+            {canPin && versions && (
+              <>
+                <hr className="ds-rule" />
+                <div className="iterate">
+                  <Eyebrow style={{ display: "block", marginBottom: 10 }}>Iterate · pin & regenerate</Eyebrow>
+                  <p className="disclaim" style={{ marginBottom: 12 }}>
+                    Click rooms on the plan to pin them, adjust the program above, then regenerate —
+                    pinned rooms stay put while the rest re-places.
+                  </p>
+                  <div className="iterate-head">
+                    <span className="brief-label">
+                      {pinned.length} pinned
+                    </span>
+                    {pinned.length > 0 && (
+                      <button type="button" className="link-btn" onClick={() => setPinned([])}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    className="export-btn export-btn--primary"
+                    style={{ marginTop: 10, width: "100%" }}
+                    onClick={regenerate}
+                    disabled={busy}
+                  >
+                    <span className="export-btn-label">
+                      {busy ? "Regenerating…" : "Regenerate"}
+                    </span>
+                    <span className="export-btn-meta">
+                      {pinned.length > 0 ? `keep ${pinned.length} pinned` : "re-place all"}
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
 
             {versions && selected && (
               <>

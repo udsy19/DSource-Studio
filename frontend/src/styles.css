@@ -245,6 +245,21 @@ header.bar {
 .room-reqs { display: flex; flex-direction: column; gap: var(--s3); }
 .room-req { display: flex; flex-direction: column; gap: var(--s2); }
 .room-req[data-active="false"] .brief-label { color: var(--muted); }
+
+/* iterate loop — pin rooms on the plan, regenerate keeping them */
+.ds-rule { border: none; border-top: 1px solid var(--line-2); margin: var(--s5) 0; }
+.iterate-head { display: flex; align-items: center; justify-content: space-between; }
+.link-btn {
+  border: none; background: none; padding: 0; cursor: pointer;
+  font: 500 12px/1 var(--sans); color: var(--accent);
+}
+.link-btn:hover { text-decoration: underline; }
+.link-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* a pinnable room on the 2D plan: hover/focus hints it's interactive */
+.fit-room--pinnable { cursor: pointer; }
+.fit-room--pinnable:focus-visible { outline: none; }
+.fit-room--pinnable:focus-visible rect { stroke: var(--accent); stroke-width: 2.4px; }
+.fit-room--pinnable:hover rect { stroke: var(--accent); }
 .room-req-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .room-stepper {
   display: inline-flex; align-items: center; gap: var(--s2);

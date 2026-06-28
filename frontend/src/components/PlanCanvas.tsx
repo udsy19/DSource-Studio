@@ -9,7 +9,14 @@ import type {
 import { furnitureSymbol } from "./furnitureSymbols";
 
 // Two modes: the generated fit (plan + instances) and the user's REAL extracted layout.
-type Props = { plan: Plan; instances: Instance[] } | { layout: ExtractedLayout };
+// In fit mode, enclosed rooms can be pinned (the iterate loop) when onTogglePin is supplied.
+type FitProps = {
+  plan: Plan;
+  instances: Instance[];
+  pinnedKeys?: Set<string>;
+  onTogglePin?: (it: Instance) => void;
+};
+type Props = FitProps | { layout: ExtractedLayout };
 
 // Generated-fit instance presentation: which furniture SYMBOL stands in for each program
 // type, whether the type reads as an ENCLOSED room (drawn with a room outline + small label),
@@ -21,8 +28,17 @@ const FIT: Record<string, FitKind> = {
   meeting_room: { symbol: "table", tint: "--furn-work", room: "MEETING" },
   collaboration: { symbol: "sofa", tint: "--furn-seat" },
   phone_booth: { symbol: "stool", tint: "--furn-storage", room: "BOOTH" },
+  reception: { symbol: "other", tint: "--furn-storage", room: "RECEPTION" },
+  kitchen: { symbol: "other", tint: "--furn-storage", room: "KITCHEN" },
+  wellness: { symbol: "sofa", tint: "--furn-seat", room: "WELLNESS" },
+  copy_print: { symbol: "other", tint: "--furn-storage", room: "COPY" },
+  storage: { symbol: "other", tint: "--furn-storage", room: "STORAGE" },
 };
 const FIT_FALLBACK: FitKind = { symbol: "other", tint: "--furn-other" };
+
+// Stable identity for a placed instance — used to pin/unpin rooms across regenerations.
+export const instanceKey = (it: Instance): string =>
+  `${it.type}:${it.x.toFixed(2)}:${it.y.toFixed(2)}`;
 
 // wall poché per type — fill token (the solid cut band), legend-swatch token, label, and
 // the assumed cut THICKNESS in feet (weight hierarchy: perimeter/core heaviest, glass thinnest).
@@ -110,11 +126,11 @@ function useView(minX: number, minY: number, maxX: number, maxY: number) {
 
 export default function PlanCanvas(props: Props) {
   if ("layout" in props) return <LayoutPlan layout={props.layout} />;
-  return <FitPlan plan={props.plan} instances={props.instances} />;
+  return <FitPlan {...props} />;
 }
 
 /* ── generated-fit plan (existing behaviour) ── */
-function FitPlan({ plan, instances }: { plan: Plan; instances: Instance[] }) {
+function FitPlan({ plan, instances, pinnedKeys, onTogglePin }: FitProps) {
   const xs = plan.boundary.map((p) => p[0]);
   const ys = plan.boundary.map((p) => p[1]);
   const view = useView(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
@@ -143,10 +159,29 @@ function FitPlan({ plan, instances }: { plan: Plan; instances: Instance[] }) {
         const oy = view.fy(it.y + it.h);
         const cx = view.fx(it.x + it.w / 2);
         const cy = view.fy(it.y + it.h / 2);
+        const pinnable = !!kind.room && !!onTogglePin;
+        const pinned = pinnable && (pinnedKeys?.has(instanceKey(it)) ?? false);
+        const pin = pinnable ? () => onTogglePin!(it) : undefined;
         return (
           <g
             key={`i-${i}`}
             transform={`translate(${ox} ${oy}) rotate(${-it.rotation} ${cx - ox} ${cy - oy})`}
+            className={pinnable ? "fit-room--pinnable" : undefined}
+            role={pinnable ? "button" : undefined}
+            tabIndex={pinnable ? 0 : undefined}
+            aria-pressed={pinnable ? pinned : undefined}
+            aria-label={pinnable ? `${pinned ? "Unpin" : "Pin"} ${kind.room}` : undefined}
+            onClick={pin}
+            onKeyDown={
+              pin
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      pin();
+                    }
+                  }
+                : undefined
+            }
           >
             {kind.room && (
               <rect
@@ -154,9 +189,9 @@ function FitPlan({ plan, instances }: { plan: Plan; instances: Instance[] }) {
                 y={0}
                 width={it.w}
                 height={it.h}
-                fill="var(--room-fill)"
-                stroke="var(--room-line)"
-                strokeWidth={1.4}
+                fill={pinned ? "var(--accent-soft)" : "var(--room-fill)"}
+                stroke={pinned ? "var(--accent)" : "var(--room-line)"}
+                strokeWidth={pinned ? 2.4 : 1.4}
                 vectorEffect="non-scaling-stroke"
                 rx={0.4}
               />
@@ -169,6 +204,7 @@ function FitPlan({ plan, instances }: { plan: Plan; instances: Instance[] }) {
                 {kind.room}
               </text>
             )}
+            {pinned && <circle cx={it.w - 1.3} cy={1.3} r={0.9} fill="var(--accent)" />}
           </g>
         );
       })}
