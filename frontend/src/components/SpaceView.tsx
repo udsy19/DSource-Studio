@@ -1,6 +1,6 @@
-import { ContactShadows, OrbitControls, useGLTF } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
-import { Component, type ReactNode, useMemo, useState } from "react";
+import { ContactShadows, Environment, OrbitControls, useGLTF } from "@react-three/drei";
+import { Canvas, useThree } from "@react-three/fiber";
+import { Component, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { renderView } from "../api";
 import type { ExtractedFurniture, ExtractedLayout, Instance, Plan } from "../types";
@@ -61,6 +61,42 @@ function useWorld(plan: Plan) {
   }, [plan]);
 }
 
+/* Shared lighting + atmosphere for both render modes — warm image-based environment for subtle
+   glass/surface reflections, one shadow-casting key, a cool fill, low ambient, and a paper-toned
+   fog for depth. Shadows are baked once (autoUpdate off) so orbiting ~300 desks stays smooth: the
+   light + geometry are static, only the camera moves, so the shadow map never needs to re-render.
+   A React commit (material swap) re-bakes once via needsUpdate. */
+function SceneLighting({ size }: { size: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.shadowMap.autoUpdate = false;
+    gl.shadowMap.needsUpdate = true;
+  });
+  return (
+    <>
+      <color attach="background" args={["#f4f1ea"]} />
+      <fog attach="fog" args={["#ece7da", size * 1.9, size * 4.6]} />
+      <Suspense fallback={null}>
+        <Environment preset="apartment" environmentIntensity={0.32} />
+      </Suspense>
+      <ambientLight intensity={0.32} />
+      <hemisphereLight args={["#fff5e8", "#cfc7b6", 0.4]} />
+      <directionalLight
+        position={[size * 0.95, size * 1.55, size * 0.7]}
+        intensity={1.55}
+        color="#fff0d8"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.05}
+      >
+        <orthographicCamera attach="shadow-camera" args={[-size, size, size, -size, 0.5, size * 4.5]} />
+      </directionalLight>
+      <directionalLight position={[-size * 0.8, size * 0.55, -size * 0.6]} intensity={0.35} color="#cdd8e8" />
+    </>
+  );
+}
+
 function Floor({ plan, w, finish }: { plan: Plan; w: World; finish: typeof FLOORS[number] }) {
   const geo = useMemo(() => {
     const shape = new THREE.Shape(plan.boundary.map(([x, y]) => new THREE.Vector2(w.wx(x), -w.wz(y))));
@@ -72,7 +108,13 @@ function Floor({ plan, w, finish }: { plan: Plan; w: World; finish: typeof FLOOR
   }, [plan, w]);
   return (
     <mesh geometry={geo} rotation-x={-Math.PI / 2} receiveShadow>
-      <meshStandardMaterial color={finish.color} roughness={finish.roughness} side={THREE.DoubleSide} />
+      <meshStandardMaterial
+        color={finish.color}
+        roughness={finish.roughness}
+        metalness={0}
+        envMapIntensity={0.25}
+        side={THREE.DoubleSide}
+      />
     </mesh>
   );
 }
@@ -112,8 +154,8 @@ function RoomShell({ w, h }: { w: number; h: number }) {
   const y = LAYOUT_WALL_H / 2;
   const glass = (
     <meshStandardMaterial
-      color="#aec4cc" transparent opacity={0.18} roughness={0.1} metalness={0.1}
-      depthWrite={false}
+      color="#aec4cc" transparent opacity={0.16} roughness={0.06} metalness={0.25}
+      envMapIntensity={1.5} depthWrite={false}
     />
   );
   return (
@@ -143,7 +185,7 @@ const PEDESTAL = "#2b2a27";
    drives only the soft goods (chair + sofa upholstery), so swapping it doesn't paint the room. */
 const DESK_TOP = "#c7a679"; // warm oak laminate
 const LEG = "#54524b"; // soft dark metal
-const WOOD = "#a97d4a"; // conference/table wood
+const WOOD = "#8a6238"; // conference/table + cabinet — darker walnut
 
 /* A real .glb chair can be dropped in here (e.g. "/models/chair.glb") to render real geometry.
    Empty by default = procedural chair: a single high-poly model cloned across hundreds of seats
@@ -202,7 +244,7 @@ function Desk({ w, h }: { w: number; h: number }) {
     <group>
       <mesh position={[0, 2.4, 0]} castShadow receiveShadow>
         <boxGeometry args={[topW, 0.12, depth]} />
-        <meshStandardMaterial color={DESK_TOP} roughness={0.5} />
+        <meshStandardMaterial color={DESK_TOP} roughness={0.42} metalness={0.04} envMapIntensity={0.5} />
       </mesh>
       {[-lx, lx].map((x, i) => (
         <mesh key={i} position={[x, 1.2, 0]} castShadow>
@@ -224,7 +266,7 @@ function Table({ w, h }: { w: number; h: number }) {
     <group>
       <mesh position={[0, 2.4, 0]} castShadow receiveShadow>
         <boxGeometry args={[w * 0.5, 0.16, h * 0.42]} />
-        <meshStandardMaterial color={WOOD} roughness={0.35} />
+        <meshStandardMaterial color={WOOD} roughness={0.3} metalness={0.05} envMapIntensity={0.5} />
       </mesh>
       <mesh position={[0, 1.2, 0]} castShadow>
         <boxGeometry args={[w * 0.18, 2.3, h * 0.12]} />
@@ -302,8 +344,8 @@ function GlassPanel({ w, h }: { w: number; h: number }) {
     <mesh position={[0, LAYOUT_WALL_H / 2, 0]} castShadow>
       <boxGeometry args={[span, LAYOUT_WALL_H, 0.16]} />
       <meshStandardMaterial
-        color="#aec4cc" transparent opacity={0.18} roughness={0.1} metalness={0.1}
-        depthWrite={false}
+        color="#aec4cc" transparent opacity={0.16} roughness={0.06} metalness={0.25}
+        envMapIntensity={1.5} depthWrite={false}
       />
     </mesh>
   );
@@ -398,8 +440,8 @@ function LayoutWalls({ layout, w }: { layout: ExtractedLayout; w: World }) {
             <boxGeometry args={[s.len + (glass ? 0 : 0.3), h, thickness]} />
             {glass ? (
               <meshStandardMaterial
-                color="#aec4cc" transparent opacity={0.22} roughness={0.1} metalness={0.1}
-                depthWrite={false}
+                color="#aec4cc" transparent opacity={0.18} roughness={0.06} metalness={0.25}
+                envMapIntensity={1.5} depthWrite={false}
               />
             ) : (
               <meshStandardMaterial
@@ -421,20 +463,16 @@ function LayoutScene({ layout, floor, finish }: {
   const w = useMemo(() => worldFromBounds(minx, miny, maxx, maxy), [minx, miny, maxx, maxy]);
   return (
     <>
-      <color attach="background" args={["#f4f1ea"]} />
-      <ambientLight intensity={0.85} />
-      <hemisphereLight args={["#fff7ec", "#d8d2c4", 0.55]} />
-      <directionalLight
-        position={[w.size, w.size * 1.4, w.size * 0.6]}
-        intensity={1.25}
-        color="#fff4e6"
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-      />
+      <SceneLighting size={w.size} />
       <mesh rotation-x={-Math.PI / 2} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[(maxx - minx) * 1.1, (maxy - miny) * 1.1]} />
-        <meshStandardMaterial color={floor.color} roughness={floor.roughness} side={THREE.DoubleSide} />
+        <meshStandardMaterial
+          color={floor.color}
+          roughness={floor.roughness}
+          metalness={0}
+          envMapIntensity={0.25}
+          side={THREE.DoubleSide}
+        />
       </mesh>
       <LayoutWalls layout={layout} w={w} />
       {layout.furniture.slice(0, MAX_RENDER).map((f, i) => (
@@ -446,7 +484,7 @@ function LayoutScene({ layout, floor, finish }: {
           <CategoryPiece f={f} finish={finish.color} />
         </group>
       ))}
-      <ContactShadows position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.2} opacity={0.3} far={20} />
+      <ContactShadows frames={1} position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.6} opacity={0.32} far={20} />
       <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={20} />
     </>
   );
@@ -524,17 +562,7 @@ function Scene({ plan, instances, floor, finish }: {
   const w = useWorld(plan);
   return (
     <>
-      <color attach="background" args={["#f4f1ea"]} />
-      <ambientLight intensity={0.85} />
-      <hemisphereLight args={["#fff7ec", "#d8d2c4", 0.55]} />
-      <directionalLight
-        position={[w.size, w.size * 1.4, w.size * 0.6]}
-        intensity={1.25}
-        color="#fff4e6"
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-      />
+      <SceneLighting size={w.size} />
       <Floor plan={plan} w={w} finish={floor} />
       <Walls plan={plan} w={w} />
       {plan.columns.map(([x, y], i) => (
@@ -548,7 +576,7 @@ function Scene({ plan, instances, floor, finish }: {
           <Piece it={it} finish={finish.color} />
         </group>
       ))}
-      <ContactShadows position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.2} opacity={0.3} far={20} />
+      <ContactShadows frames={1} position={[0, 0.02, 0]} scale={w.size * 2.4} blur={2.6} opacity={0.32} far={20} />
       <OrbitControls makeDefault enablePan target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={20} />
     </>
   );
@@ -586,9 +614,9 @@ export default function SpaceView(props: SpaceViewProps) {
     <div className="space3d">
       <WebGLBoundary>
         <Canvas
-          shadows
-          gl={{ preserveDrawingBuffer: true }}
-          camera={{ position: [size * 0.75, size * 0.7, size * 0.85], fov: 34 }}
+          shadows="soft"
+          gl={{ preserveDrawingBuffer: true, antialias: true, toneMappingExposure: 1.05 }}
+          camera={{ position: [size * 0.92, size * 0.5, size * 0.96], fov: 32 }}
           dpr={[1, 2]}
         >
           {"layout" in props ? (
