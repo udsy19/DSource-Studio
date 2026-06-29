@@ -39,6 +39,9 @@ class SettingFurniture:
     w: float
     h: float
     rotation: float
+    # real plan geometry as polylines relative to the setting min-corner (empty = footprint only),
+    # so a slotted/swapped piece can render its true shape at any target origin.
+    outline: list[list[tuple[float, float]]] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +103,8 @@ def build_setting(layout: ExtractedLayout, setting_id: str) -> Setting | None:
             category=f.category, brand=f.brand, model=f.model, list_price=f.list_price,
             dx=round(f.x - minx, 2), dy=round(f.y - miny, 2),
             w=round(f.w, 2), h=round(f.h, 2), rotation=round(f.rotation, 1),
+            # outline is world-coord; re-base to the setting min-corner so it travels with the piece
+            outline=[[(round(px - minx, 2), round(py - miny, 2)) for (px, py) in ring] for ring in f.outline],
         )
         for f in items
     ]
@@ -107,6 +112,56 @@ def build_setting(layout: ExtractedLayout, setting_id: str) -> Setting | None:
         id=setting_id,
         setting_type=infer_setting_type(furniture, sqft),
         sqft=sqft, width_ft=width_ft, height_ft=height_ft, furniture=furniture,
+    )
+
+
+@dataclass
+class Product:
+    """One unique furniture SKU across the library — a swap alternative for a piece of that category."""
+
+    category: str
+    brand: str | None
+    model: str | None
+    list_price: float | None
+    w: float
+    h: float
+    outline: list[list[tuple[float, float]]] = field(default_factory=list)
+
+
+def build_products(settings: list[Setting]) -> list[Product]:
+    """Distinct REAL furniture SKUs across all settings — the pool of item-swap alternatives, each
+    with a representative size + geometry. Only spec'd items (a model/SKU) are products; un-spec'd
+    CET sub-parts (category 'other', no model) are construction geometry, not swappable furniture."""
+    seen: dict[tuple, Product] = {}
+    for s in settings:
+        for f in s.furniture:
+            if not f.model:  # no SKU -> a sub-part, not a catalog product
+                continue
+            key = (f.brand or "", f.model, f.category)
+            if key not in seen:
+                seen[key] = Product(
+                    category=f.category, brand=f.brand, model=f.model, list_price=f.list_price,
+                    w=f.w, h=f.h, outline=f.outline,
+                )
+    return list(seen.values())
+
+
+def settings_for(settings: list[Setting], setting_type: str, max_w: float, max_h: float,
+                 tol: float = 0.5) -> list[Setting]:
+    """Settings of `setting_type` whose footprint fits within (max_w, max_h) — room-swap alternatives,
+    largest first (best fill of the room)."""
+    fit = [
+        s for s in settings
+        if s.setting_type == setting_type and s.width_ft <= max_w + tol and s.height_ft <= max_h + tol
+    ]
+    return sorted(fit, key=lambda s: s.sqft, reverse=True)
+
+
+def products_for(products: list[Product], category: str) -> list[Product]:
+    """Item-swap alternatives for a category, cheapest first."""
+    return sorted(
+        (p for p in products if p.category == category),
+        key=lambda p: (p.list_price is None, p.list_price or 0.0),
     )
 
 

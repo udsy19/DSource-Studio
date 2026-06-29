@@ -148,3 +148,31 @@ def test_generator_slots_when_library_present_and_is_noop_when_absent():
     bare_offices = [i for i in bare.instances if i.type == "private_office"]
     slot_offices = [i for i in slotted.instances if i.type == "private_office"]
     assert len(bare_offices) == len(slot_offices)
+
+
+def test_products_only_skud_and_alternatives_queries():
+    """build_products keeps only real SKU'd furniture (drops un-spec'd sub-parts); settings_for
+    fits by type+footprint; products_for filters by category."""
+    from app.testfit.settings import (
+        Setting, SettingFurniture, build_products, products_for, settings_for,
+    )
+
+    def sf(cat, model, price, w=2, h=2):
+        return SettingFurniture(category=cat, brand="Steelcase" if model else None, model=model,
+                                list_price=price, dx=0, dy=0, w=w, h=h, rotation=0)
+
+    office = Setting(id="o", setting_type="private_office", sqft=120, width_ft=10, height_ft=12,
+                     furniture=[sf("desk", "DSK1", 900), sf("chair", "CH1", 500),
+                                sf("other", None, None)])  # sub-part, no SKU
+    big = Setting(id="b", setting_type="private_office", sqft=300, width_ft=15, height_ft=20,
+                  furniture=[sf("desk", "DSK2", 1100)])
+    products = build_products([office, big])
+
+    assert all(p.model for p in products)  # no un-spec'd sub-parts
+    assert {p.model for p in products} == {"DSK1", "CH1", "DSK2"}
+
+    fits = settings_for([office, big], "private_office", max_w=12, max_h=14)
+    assert [s.id for s in fits] == ["o"]  # the 15x20 'big' doesn't fit a 12x14 room
+
+    chairs = products_for(products, "chair")
+    assert len(chairs) == 1 and chairs[0].model == "CH1"

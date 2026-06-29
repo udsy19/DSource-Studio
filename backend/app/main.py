@@ -13,7 +13,7 @@ from .procurement.models import seed_vendors
 from .realdata import apply_coop_hmi_band, ingest_hm_pricebooks
 from .routers import (
     alternatives, brief, cad, catalog, coop, floorplan, floorplan_raster, generate,
-    generate_detailed, gsa, ifc, ingest, ingest_cad, ingest_raster, layout_takeoff, match,
+    generate_detailed, gsa, ifc, ingest, ingest_cad, ingest_raster, layout_takeoff, library, match,
     procurement, projects, quote, render, report, source, takeoff, testfit, version_export,
     wellcatalog,
 )
@@ -100,6 +100,7 @@ app.include_router(floorplan_raster.router)  # Qbiq: raster/PDF floor-plate inge
 app.include_router(ingest_cad.router)        # Ingestion: read a CAD layout -> real ExtractedLayout
 app.include_router(ingest_raster.router)     # Ingestion: read a raster/PDF layout -> ExtractedLayout
 app.include_router(layout_takeoff.router)    # Qbiq takeoff: ExtractedLayout -> multi-sheet xlsx
+app.include_router(library.router)           # Steelcase catalog: settings (rooms) + products (SKUs) for slotting/swap
 app.include_router(render.router)     # AI photoreal render proxy (needs provider key)
 app.include_router(brief.router)       # Studio: HQ brief → program spec translation
 app.include_router(wellcatalog.router) # Studio: WELL-ranked catalog
