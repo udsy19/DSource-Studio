@@ -38,13 +38,17 @@ class FurnitureItem(BaseModel):
     category: str  # chair | desk | workstation | table | sofa | stool | tv | storage | planter | panel | other
     block_name: str  # raw source name (carries brand/model for CAD)
     brand: str | None
-    model: str | None
+    model: str | None  # part number / SKU where the drawing carries it (CET CAPPN)
     x: float
     y: float
     w: float
     h: float
     rotation: float  # degrees
     room_id: str | None = None  # the room this item belongs to (by boundary or nearest centre)
+    list_price: float | None = None  # manufacturer list price where the spec carries it (CET CAPPL), for the BOM
+    # real plan geometry — world-coord polylines from the source block, so the piece can render as
+    # its true shape instead of a category symbol/box. Empty when only a footprint is known.
+    outline: list[list[tuple[float, float]]] = []
 
 
 class ExtractedLayout(BaseModel):
