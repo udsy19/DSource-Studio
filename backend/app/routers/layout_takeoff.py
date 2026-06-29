@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from ..ingestion.cad_reader import read_cad
 from ..ingestion.schema import ExtractedLayout
+from ..takeoff.bom import build_bom
 from ..takeoff.layout_takeoff import build_layout_takeoff
 
 router = APIRouter(tags=["takeoff"])
@@ -51,3 +52,9 @@ async def layout_to_takeoff(file: UploadFile = File(...)):
 async def adopted_layout_to_takeoff(layout: ExtractedLayout):
     """Takeoff from an already-extracted layout (e.g. an adopted generated version), sent as JSON."""
     return _stream_takeoff(layout)
+
+
+@router.post("/api/layout/bom")
+async def layout_bom(layout: ExtractedLayout):
+    """Priced bill of materials from a layout's furniture (real SKUs + list prices where present)."""
+    return build_bom(layout)

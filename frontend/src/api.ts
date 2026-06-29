@@ -196,6 +196,34 @@ export async function downloadTakeoffFromLayout(
   );
 }
 
+export interface BomLine {
+  brand: string;
+  model: string;
+  description: string;
+  category: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
+export interface Bom {
+  lines: BomLine[];
+  total: number;
+  priced_items: number;
+  unpriced_items: number;
+  currency: string;
+}
+
+// Priced bill of materials from a layout's furniture (real SKUs + list prices where present).
+export async function fetchLayoutBom(layout: import("./types").ExtractedLayout): Promise<Bom> {
+  const res = await fetch("/api/layout/bom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(layout),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),

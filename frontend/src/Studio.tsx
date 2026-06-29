@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   downloadDxfFromFit,
   downloadIfc,
@@ -8,11 +8,13 @@ import {
   downloadTakeoffFromFit,
   downloadTakeoffFromLayout,
   generateAlternatives,
+  fetchLayoutBom,
   generateDetailed,
   generateFromConcept,
   ingestCad,
   iterateDetailed,
   num,
+  type Bom,
 } from "./api";
 import Dropzone from "./components/Dropzone";
 import PlanCanvas, { instanceKey } from "./components/PlanCanvas";
@@ -166,6 +168,20 @@ export default function Studio() {
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<"plan" | "space">("plan");
   const [exporting, setExporting] = useState<string | null>(null);
+  const [bom, setBom] = useState<Bom | null>(null);
+
+  // Priced bill of materials — fetch when a layout with priced furniture (real SKUs) is shown.
+  useEffect(() => {
+    if (!layout || !layout.furniture.some((f) => f.list_price != null)) {
+      setBom(null);
+      return;
+    }
+    let live = true;
+    fetchLayoutBom(layout).then((b) => live && setBom(b)).catch(() => live && setBom(null));
+    return () => {
+      live = false;
+    };
+  }, [layout]);
 
   async function readLayout(f: File) {
     setBusy(true);
@@ -386,6 +402,38 @@ export default function Studio() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  </>
+                )}
+
+                {bom && bom.lines.length > 0 && (
+                  <>
+                    <hr className="ds-rule" />
+                    <div>
+                      <Eyebrow style={{ display: "block", marginBottom: 12 }}>
+                        Bill of materials · priced
+                      </Eyebrow>
+                      <div className="bom-list">
+                        {bom.lines.map((l, i) => (
+                          <div className="bom-line" key={`${l.model}-${i}`}>
+                            <span className="bom-name">
+                              {l.qty}× {l.brand} {l.model}
+                            </span>
+                            <span className="bom-amt">${num(Math.round(l.line_total))}</span>
+                          </div>
+                        ))}
+                        <div className="bom-line bom-total">
+                          <span className="bom-name">Total · {bom.priced_items} priced</span>
+                          <span className="bom-amt">${num(Math.round(bom.total))}</span>
+                        </div>
+                      </div>
+                      <p className="disclaim" style={{ marginTop: 10 }}>
+                        Manufacturer list prices read straight from the drawing’s spec attributes
+                        {bom.unpriced_items > 0
+                          ? ` · ${bom.unpriced_items} item(s) carry no price`
+                          : ""}
+                        .
+                      </p>
                     </div>
                   </>
                 )}
