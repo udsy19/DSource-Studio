@@ -17,6 +17,7 @@ from ..testfit.settings import (
     load_settings,
     products_for,
     settings_for,
+    symbol_outline,
 )
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -55,3 +56,11 @@ def list_products(category: str | None = None):
     _, products = _catalog()
     products = products_for(products, category) if category else products
     return [asdict(p) for p in products]
+
+
+@router.get("/geometry")
+def symbol_geometry(sku: str):
+    """Real plan geometry for one SKU from the product-model library — so a slotted/swapped piece
+    renders its true shape. Empty outline (footprint fallback) when the SKU has no model."""
+    geo = symbol_outline(sku)
+    return geo or {"outline": [], "w": 0, "h": 0}

@@ -208,6 +208,44 @@ def _settings_path() -> Path:
     return _settings_dir() / "settings.json"
 
 
+# ── per-SKU real geometry ──────────────────────────────────────────────────
+# The Steelcase product-model library (one DXF per SKU under 3d-models-cad/<Category>/<SKU>.dxf)
+# lets a slotted/swapped piece render its TRUE plan shape instead of a footprint box.
+_symbol_paths: dict[str, Path] | None = None
+
+
+def _models_dir() -> Path:
+    """Root of the per-SKU product geometry (DXF preferred, the converted library)."""
+    root = Path(__file__).resolve().parents[3]
+    return root / "steelcase-dxf" / "3d-models-cad"
+
+
+def _symbol_index() -> dict[str, Path]:
+    """SKU (file stem) -> product DXF path, walked once. Empty when the library isn't present."""
+    global _symbol_paths
+    if _symbol_paths is None:
+        models = _models_dir()
+        _symbol_paths = {p.stem: p for p in models.rglob("*.dxf")} if models.exists() else {}
+    return _symbol_paths
+
+
+def symbol_outline(sku: str, max_polys: int = 120) -> dict | None:
+    """Real plan outline (polylines in feet, re-based to the shape's min-corner) + size for one SKU,
+    or None when the SKU has no product model. Reuses the faithful DXF flattener."""
+    path = _symbol_index().get(sku)
+    if path is None:
+        return None
+    from ..floorplan.cad_geometry import extract_geometry
+
+    geo = extract_geometry(path.read_bytes(), path.name, max_paths=max_polys)
+    paths, b = geo["paths"], geo["bounds"]
+    if not paths or not b:
+        return None
+    minx, miny = b["minx"], b["miny"]
+    outline = [[(round(x - minx, 2), round(y - miny, 2)) for (x, y) in p["pts"]] for p in paths]
+    return {"outline": outline, "w": round(b["maxx"] - minx, 2), "h": round(b["maxy"] - miny, 2)}
+
+
 def build_library(steelcase_dir: Path | None = None) -> list[Setting]:
     """Ingest every application DWG/DXF under the directory (recursing the type subfolders) into
     Settings, taking each setting_type from its Steelcase folder when recognized (else inferring).

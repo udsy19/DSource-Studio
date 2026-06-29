@@ -243,6 +243,19 @@ export async function fetchSettings(
   return res.json();
 }
 
+export interface SymbolGeometry {
+  outline: [number, number][][]; // real plan polylines (feet), re-based to the shape's min-corner
+  w: number;
+  h: number;
+}
+
+// Real per-SKU plan geometry from the product-model library (empty outline -> footprint fallback).
+export async function fetchGeometry(sku: string): Promise<SymbolGeometry> {
+  const res = await fetch(`/api/library/geometry?sku=${encodeURIComponent(sku)}`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),

@@ -8,6 +8,7 @@ import {
   downloadTakeoffFromFit,
   downloadTakeoffFromLayout,
   generateAlternatives,
+  fetchGeometry,
   fetchLayoutBom,
   fetchProducts,
   fetchSettings,
@@ -300,25 +301,35 @@ export default function Studio() {
   };
 
   // Piece swap — replace the selected item with a catalog product, keeping its centre + rotation.
-  function applyPieceSwap(p: Product) {
+  async function applyPieceSwap(p: Product) {
     if (!layout || !swapFurniture) return;
     const key = furnitureKey(swapFurniture);
-    const furniture = layout.furniture.map((f) => {
-      if (furnitureKey(f) !== key) return f;
-      const cx = f.x + f.w / 2;
-      const cy = f.y + f.h / 2;
-      return {
-        ...f,
-        brand: p.brand,
-        model: p.model,
-        list_price: p.list_price ?? null,
-        w: p.w,
-        h: p.h,
-        x: cx - p.w / 2,
-        y: cy - p.h / 2,
-        outline: placeOutline(p.outline, cx, cy),
-      };
-    });
+    const cur = layout.furniture.find((f) => furnitureKey(f) === key);
+    if (!cur) return;
+    const cx = cur.x + cur.w / 2;
+    const cy = cur.y + cur.h / 2;
+
+    // Pull the SKU's real plan shape from the product-model library; fall back to its footprint.
+    let outline: [number, number][][] | undefined;
+    let w = p.w;
+    let h = p.h;
+    try {
+      const geo = await fetchGeometry(p.model);
+      if (geo.outline?.length) {
+        outline = placeOutline(geo.outline, cx, cy);
+        w = geo.w;
+        h = geo.h;
+      }
+    } catch {
+      /* no model geometry — footprint box */
+    }
+
+    const furniture = layout.furniture.map((f) =>
+      furnitureKey(f) !== key
+        ? f
+        : { ...f, brand: p.brand, model: p.model, list_price: p.list_price ?? null,
+            w, h, x: cx - w / 2, y: cy - h / 2, outline },
+    );
     setLayout({ ...layout, furniture });
     dismissSwap();
   }

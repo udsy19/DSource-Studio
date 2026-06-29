@@ -176,3 +176,10 @@ def test_products_only_skud_and_alternatives_queries():
 
     chairs = products_for(products, "chair")
     assert len(chairs) == 1 and chairs[0].model == "CH1"
+
+
+def test_symbol_outline_missing_sku_is_none():
+    """A SKU with no product model resolves to None (caller falls back to footprint) — never errors."""
+    from app.testfit.settings import symbol_outline
+
+    assert symbol_outline("__no_such_sku__") is None
