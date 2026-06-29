@@ -12,13 +12,11 @@ fabricated: when a value can't be determined it is left null and the layout is f
 
 from __future__ import annotations
 
-import io
 import math
 import re
 from collections import Counter
 
 import ezdxf.bbox
-import ezdxf.recover
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
@@ -26,6 +24,7 @@ from ..floorplan.dxf_ingest import (
     _INSUNITS_TO_FEET,
     _UNIT_NAME,
     _dwg_to_dxf_bytes,
+    _read_dxf_doc,
 )
 from .schema import Door, ExtractedLayout, FurnitureItem, Room, Wall
 
@@ -88,7 +87,7 @@ _MAX_ROOM_SF = 20_000.0
 def read_cad(content: bytes, filename: str) -> ExtractedLayout:
     if (filename or "").lower().endswith(".dwg"):
         content = _dwg_to_dxf_bytes(content)
-    doc, _auditor = ezdxf.recover.read(io.BytesIO(content))
+    doc = _read_dxf_doc(content)
     msp = doc.modelspace()
 
     insunits = int(doc.header.get("$INSUNITS", 0) or 0)

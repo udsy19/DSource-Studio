@@ -132,6 +132,39 @@ def _dwg_to_dxf_bytes(dwg: bytes) -> bytes:
             return f.read()
 
 
+def _read_dxf_doc(dxf: bytes):
+    """Parse DXF bytes into an ezdxf doc, ROBUSTLY. Real-world exports split two ways: some are read
+    only by the strict `ezdxf.readfile` (which `recover` silently drops to an empty modelspace — e.g.
+    Steelcase application plans), others only by `ezdxf.recover` (which tolerates the binary/encoded
+    sections + malformed group codes that break the strict reader). Try both from a temp file and
+    keep whichever yields the most modelspace entities."""
+    import os
+    import tempfile
+
+    import ezdxf
+    import ezdxf.recover
+
+    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tf:
+        tf.write(dxf)
+        path = tf.name
+    try:
+        best = None
+        best_n = -1
+        for reader in (lambda: ezdxf.readfile(path), lambda: ezdxf.recover.readfile(path)[0]):
+            try:
+                doc = reader()
+                n = sum(1 for _ in doc.modelspace())
+            except Exception:  # noqa: BLE001 - one reader failing is expected; the other may work
+                continue
+            if n > best_n:
+                best, best_n = doc, n
+        if best is None:
+            raise RuntimeError("Could not parse the DXF with either ezdxf reader (readfile/recover).")
+        return best
+    finally:
+        os.unlink(path)
+
+
 def ingest_dxf(source: bytes | str) -> PlanModel:
     # Use ezdxf.recover — it auto-detects encoding and tolerates the binary/encoded sections
     # and structure quirks real-world CAD exports contain. Decoding bytes as UTF-8 by hand

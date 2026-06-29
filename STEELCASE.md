@@ -63,6 +63,33 @@ Steelcase application into a reusable, SKU-tagged furnished-room template.* We a
   suppliers is the primary catalog). Steelcase is **US/global** → a complementary catalog track on the
   same engine ("architected to expand"), not a replacement for the India catalog.
 
+## Proof-of-ingest findings (2026-06-28, 29 application 2D DWGs)
+
+Ran the real Steelcase 2D DWGs (`APL*_PLAN.dwg`, e.g. APL00122 Private Office – Leadership)
+through `cad_reader`. Two results:
+
+1. **A real robustness bug found + fixed (kept).** `cad_reader` read DWG→DXF via `ezdxf.recover`
+   only, which silently returns an **empty** modelspace for some real-world exports (incl. these),
+   while the strict `ezdxf.readfile` reads them fine (and vice-versa for others). Added
+   `_read_dxf_doc` — try both, keep whichever yields the most entities. The user's own plate still
+   extracts 617 furniture; 189 backend tests pass. General CAD-reading win, independent of Steelcase.
+
+2. **The Steelcase files are Configura CET exports, and LibreDWG can't convert them cleanly (BLOCKER).**
+   Each furniture item is an anonymous block (`*C1..*C41`) on layer `A-FURN`/`CET Default`, carrying
+   the geometry **and 130 ATTDEFs (the SKU/spec attributes)** — exactly what we want. BUT LibreDWG's
+   `dwg2dxf` **truncates the modelspace INSERT references to `*C`** (dropping the digits), so they no
+   longer resolve to their `*C{n}` definitions — geometry + placement can't be recovered. Confirmed
+   across every output version (r14/r2000/r2010/r2013): `resolved=0`. So the payload is rich and the
+   idea is sound; the only blocker is the converter.
+
+### The unlock
+Use a proper DWG→DXF converter that preserves anonymous-block references:
+- **ODA File Converter** (free from the Open Design Alliance) — the standard fix; macOS GUI install.
+  Next step: install it, then wire `_dwg_to_dxf_bytes` to prefer ODA and fall back to LibreDWG.
+- or Autodesk DWG TrueView, or export from Configura CET / Steelcase in **DXF** directly.
+Once converted cleanly, `cad_reader` should yield each application's furniture footprints + SKU
+attributes — and the "applications as building blocks" plan proceeds.
+
 ## Proposed first step
 
 Download 2-3 *Private Office* + *Workstation* applications as DWG and run them through `cad_reader` to
