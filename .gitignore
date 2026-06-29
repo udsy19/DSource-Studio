@@ -43,3 +43,6 @@ frontend/.vite/
 
 .claude/sdd-cache/
 .playwright-mcp/
+
+# Steelcase application library (DWGs + built settings.json) — licensing, not committed
+steelcase/

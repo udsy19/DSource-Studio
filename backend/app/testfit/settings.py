@@ -25,6 +25,28 @@ from ..ingestion.schema import ExtractedLayout
 # equality. "open" is a workstation field — kept OUT of room slotting (the open plan stays as-is).
 SLOTTABLE_TYPES = ("private_office", "meeting_room", "collaboration")
 
+# Steelcase library folders (and manifest setting_types) -> our generator setting_type. The library
+# is organized by Steelcase's own categories, which are far more reliable than inferring from the
+# (often sparse) furniture mix. Anything unmapped falls back to furniture-mix inference.
+_TYPE_MAP = {
+    "private-office": "private_office",
+    "focus-room": "private_office",
+    "work-from-home": "private_office",
+    "meeting-spaces": "meeting_room",
+    "classrooms-learning": "meeting_room",
+    "workstations": "open",
+    "cafe": "collaboration",
+    "open-touchdown": "collaboration",
+    "respite-wellbeing-spaces": "collaboration",
+    "support-spaces": "collaboration",
+    "outdoor": "collaboration",
+}
+
+
+def _folder_type(folder_name: str) -> str | None:
+    """Map a Steelcase library folder name to a generator setting_type (None when unmapped)."""
+    return _TYPE_MAP.get(folder_name.strip().lower())
+
 
 @dataclass
 class SettingFurniture:
@@ -80,11 +102,12 @@ def infer_setting_type(furniture: list[SettingFurniture], sqft: float) -> str:
     return "collaboration"
 
 
-def build_setting(layout: ExtractedLayout, setting_id: str) -> Setting | None:
+def build_setting(layout: ExtractedLayout, setting_id: str, setting_type: str | None = None) -> Setting | None:
     """Distil one application ExtractedLayout into a Setting (None when it carries no furniture).
 
     The footprint is the furniture bounding box; each item's pose is stored relative to that box's
-    min-corner so the setting can be dropped at any room origin.
+    min-corner so the setting can be dropped at any room origin. `setting_type`, when given (from the
+    Steelcase library folder), overrides furniture-mix inference.
     """
     items = layout.furniture
     if not items:
@@ -110,7 +133,7 @@ def build_setting(layout: ExtractedLayout, setting_id: str) -> Setting | None:
     ]
     return Setting(
         id=setting_id,
-        setting_type=infer_setting_type(furniture, sqft),
+        setting_type=setting_type or infer_setting_type(furniture, sqft),
         sqft=sqft, width_ft=width_ft, height_ft=height_ft, furniture=furniture,
     )
 
@@ -166,11 +189,15 @@ def products_for(products: list[Product], category: str) -> list[Product]:
 
 
 def _settings_dir() -> Path:
-    """Directory holding the application DWGs + the built settings.json (env or repo default)."""
+    """Directory holding the application DWGs (organized in type subfolders) + the built
+    settings.json. $STEELCASE_DIR overrides; otherwise prefer the repo-root `steelcase/` library,
+    falling back to data/steelcase."""
     env = os.environ.get("STEELCASE_DIR")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[3] / "data" / "steelcase"
+    root = Path(__file__).resolve().parents[3]
+    library = root / "steelcase"
+    return library if library.exists() else root / "data" / "steelcase"
 
 
 def _settings_path() -> Path:
@@ -178,17 +205,23 @@ def _settings_path() -> Path:
 
 
 def build_library(steelcase_dir: Path | None = None) -> list[Setting]:
-    """Ingest every application DWG/DXF in the directory into Settings (skips files with no
-    furniture). Reads from `steelcase_dir` or $STEELCASE_DIR / the repo default. Offline-only —
-    `read_cad` is imported lazily so the runtime path never pulls the CAD stack."""
+    """Ingest every application DWG/DXF under the directory (recursing the type subfolders) into
+    Settings, taking each setting_type from its Steelcase folder when recognized (else inferring).
+    Skips files with no furniture. Offline-only — `read_cad` is imported lazily so the runtime path
+    never pulls the CAD stack."""
     from ..ingestion.cad_reader import read_cad
 
     directory = steelcase_dir or _settings_dir()
     settings: list[Setting] = []
-    for path in sorted(directory.glob("*")):
+    for path in sorted(directory.rglob("*")):
         if path.suffix.lower() not in (".dwg", ".dxf"):
             continue
-        setting = build_setting(read_cad(path.read_bytes(), path.name), path.stem)
+        stype = _folder_type(path.parent.name)
+        try:
+            layout = read_cad(path.read_bytes(), path.name)
+        except Exception:  # noqa: BLE001 - one bad file shouldn't abort the whole library build
+            continue
+        setting = build_setting(layout, path.stem, setting_type=stype)
         if setting is not None:
             settings.append(setting)
     return settings
