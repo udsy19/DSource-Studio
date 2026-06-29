@@ -162,8 +162,11 @@ def build_products(settings: list[Setting]) -> list[Product]:
                 continue
             key = (f.brand or "", f.model, f.category)
             if key not in seen:
+                # a $0 CET spec means "no standalone price", not free — normalize to None so it reads
+                # as unpriced everywhere (never fabricate a price).
+                price = f.list_price if (f.list_price or 0) > 0 else None
                 seen[key] = Product(
-                    category=f.category, brand=f.brand, model=f.model, list_price=f.list_price,
+                    category=f.category, brand=f.brand, model=f.model, list_price=price,
                     w=f.w, h=f.h, outline=f.outline,
                 )
     return list(seen.values())
@@ -181,10 +184,11 @@ def settings_for(settings: list[Setting], setting_type: str, max_w: float, max_h
 
 
 def products_for(products: list[Product], category: str) -> list[Product]:
-    """Item-swap alternatives for a category, cheapest first."""
+    """Item-swap alternatives for a category — substantial priced pieces first, unpriced last (so
+    nominal $1 CET placeholders don't lead the list)."""
     return sorted(
         (p for p in products if p.category == category),
-        key=lambda p: (p.list_price is None, p.list_price or 0.0),
+        key=lambda p: (p.list_price is None, -(p.list_price or 0.0)),
     )
 
 
@@ -218,7 +222,9 @@ def build_library(steelcase_dir: Path | None = None) -> list[Setting]:
             continue
         stype = _folder_type(path.parent.name)
         try:
-            layout = read_cad(path.read_bytes(), path.name)
+            # outline off: footprint is enough for slotting/swap, and per-item outlines for the whole
+            # library would bloat settings.json to hundreds of MB.
+            layout = read_cad(path.read_bytes(), path.name, extract_outline=False)
         except Exception:  # noqa: BLE001 - one bad file shouldn't abort the whole library build
             continue
         setting = build_setting(layout, path.stem, setting_type=stype)

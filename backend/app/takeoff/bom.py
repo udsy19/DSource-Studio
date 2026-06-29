@@ -30,7 +30,7 @@ def build_bom(layout: ExtractedLayout) -> dict:
         if f.category == "mullion":  # glazing framing, not a product line
             continue
         k = _key(f)
-        if f.list_price is not None:
+        if f.list_price and f.list_price > 0:  # a $0 CET spec means "no standalone price", not free
             line = priced.setdefault(
                 k,
                 {

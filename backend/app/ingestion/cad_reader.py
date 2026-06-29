@@ -85,7 +85,10 @@ _MIN_ROOM_SF = 20.0
 _MAX_ROOM_SF = 20_000.0
 
 
-def read_cad(content: bytes, filename: str) -> ExtractedLayout:
+def read_cad(content: bytes, filename: str, extract_outline: bool = True) -> ExtractedLayout:
+    """Read a CAD layout. `extract_outline` (default on) flattens each item's real plan geometry for
+    true-shape rendering — it's the slow part, so the catalog build turns it OFF (footprint is enough
+    for slotting/swapping, and storing outlines for 684 apps would bloat the library to ~400 MB)."""
     if (filename or "").lower().endswith(".dwg"):
         content = _dwg_to_dxf_bytes(content)
     doc = _read_dxf_doc(content)
@@ -96,7 +99,7 @@ def read_cad(content: bytes, filename: str) -> ExtractedLayout:
     units = _UNIT_NAME.get(insunits, "unknown")
     notes: list[str] = []
 
-    furniture, doors = _read_inserts(msp, lf)
+    furniture, doors = _read_inserts(msp, lf, extract_outline)
     walls, wall_lines = _read_walls(msp, lf)
     bounds = _bounds(furniture, walls, doors)
     if _synthesize_perimeter(walls, bounds):
@@ -196,7 +199,7 @@ def _item_outline(ins, lf: float, max_polys: int = 48, max_pts: int = 400) -> li
     return polys
 
 
-def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
+def _read_inserts(msp, lf: float, extract_outline: bool = True) -> tuple[list[FurnitureItem], list[Door]]:
     furniture: list[FurnitureItem] = []
     doors: list[Door] = []
     leaf_cache: dict[str, float | None] = {}
@@ -218,7 +221,7 @@ def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
         list_price = _parse_price(spec["price"]) if spec else None
         # real outline only for a single placement (its world coords match that one insert); a
         # MINSERT grid would need per-cell offsets, so those fall back to the footprint symbol.
-        outline = _item_outline(ins, lf) if (not is_door and len(positions) == 1) else []
+        outline = _item_outline(ins, lf) if (extract_outline and not is_door and len(positions) == 1) else []
 
         for (x, y, w, h) in positions:
             rotation = float(getattr(ins.dxf, "rotation", 0.0) or 0.0)

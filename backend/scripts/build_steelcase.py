@@ -33,7 +33,8 @@ def main() -> None:
     for i, path in enumerate(files, 1):
         stype = _folder_type(path.parent.name)
         try:
-            setting = build_setting(read_cad(path.read_bytes(), path.name), path.stem, setting_type=stype)
+            layout = read_cad(path.read_bytes(), path.name, extract_outline=False)
+            setting = build_setting(layout, path.stem, setting_type=stype)
             if setting is not None:
                 settings.append(setting)
         except Exception as exc:  # noqa: BLE001

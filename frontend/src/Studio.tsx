@@ -954,10 +954,11 @@ function ElCount({ n, k }: { n: number; k: string }) {
 }
 
 // Price + delta-vs-current for a swap alternative ("$1,240 · +$180"); "—" when unpriced.
+// A $0 list price means "no standalone price" (CET sub-component), never free — show it as unpriced.
 function priceMeta(price?: number | null, current?: number | null): string {
-  if (price == null) return "—";
+  if (!price || price <= 0) return "—";
   const base = `$${num(price)}`;
-  if (current == null || current === price) return base;
+  if (!current || current <= 0 || current === price) return base;
   const d = price - current;
   return `${base} · ${d > 0 ? "+" : "−"}$${num(Math.abs(d))}`;
 }
