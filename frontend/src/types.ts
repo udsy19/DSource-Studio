@@ -295,3 +295,41 @@ export interface ExtractedLayout {
   needs_confirmation: boolean;
   notes: string[];
 }
+
+// ── Swap catalog (GET /api/library/products | /api/library/settings) ──
+// A piece-swap alternative for a furniture category — drops in for an ExtractedFurniture,
+// keeping the original's place (center) and rotation.
+export interface Product {
+  category: FurnitureCategory;
+  brand: string;
+  model: string;
+  list_price?: number | null;
+  w: number;
+  h: number;
+  outline?: [number, number][][];
+}
+
+// One placed piece inside a CatalogSetting — (dx,dy) is the MIN-corner offset from the
+// setting's bounding box, dropped at the room's bbox min-corner on swap.
+export interface SettingFurniture {
+  category: FurnitureCategory;
+  brand: string;
+  model: string;
+  list_price?: number | null;
+  dx: number;
+  dy: number;
+  w: number;
+  h: number;
+  rotation: number;
+  outline?: [number, number][][];
+}
+
+// A room-swap alternative (a Steelcase setting) that fits the selected room's footprint.
+export interface CatalogSetting {
+  id: string;
+  setting_type: string;
+  sqft: number;
+  width_ft: number;
+  height_ft: number;
+  furniture: SettingFurniture[];
+}

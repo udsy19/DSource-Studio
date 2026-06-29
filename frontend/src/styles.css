@@ -111,7 +111,16 @@ header.bar {
 .layout-room { cursor: pointer; }
 .layout-room:focus-visible { outline: none; }
 .layout-room:hover .room-shape,
-.layout-room:focus-visible .room-shape { fill: var(--accent-soft); stroke: var(--accent); }
+.layout-room:focus-visible .room-shape,
+.layout-room.is-selected .room-shape { fill: var(--accent-soft); stroke: var(--accent); }
+
+/* swap selection — a real-SKU furniture item shifts its linework (and fill, where it has one)
+   to the accent on hover / focus / when picked for a swap */
+.layout-furn { cursor: pointer; }
+.layout-furn:focus-visible { outline: none; }
+.layout-furn:is(:hover, :focus-visible, .is-selected)
+  :is(rect, circle, path, line, polyline, polygon) { stroke: var(--accent); }
+.layout-furn.is-selected polygon { fill: var(--accent-soft); }
 
 /* floating room tag — name + area near the cursor / focused room */
 .room-tag { position: absolute; z-index: 7; transform: translate(-50%, calc(-100% - 10px));
@@ -416,6 +425,16 @@ header.bar {
 .room-row:last-child { border-bottom: none; }
 .rm-label { color: var(--ink-2); }
 .rm-area { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* swap chooser — piece / room alternatives, accent-framed card above the bill */
+.swap-panel {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 15px; border: 1px solid var(--accent-line); border-radius: var(--r2);
+  background: var(--accent-soft);
+}
+.swap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.swap-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+.swap-list .export-btn { background: var(--paper); }
 
 /* export · deliverables */
 .exports .export-actions { display: flex; flex-direction: column; gap: 9px; }

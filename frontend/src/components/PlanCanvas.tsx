@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
+  ExtractedFurniture,
   ExtractedLayout,
+  ExtractedRoom,
   FurnitureCategory,
   Instance,
   Plan,
@@ -17,7 +19,17 @@ type FitProps = {
   onTogglePin?: (it: Instance) => void;
   compact?: boolean; // a contained, non-interactive mini-plan (version thumbnails) — no pan/zoom chrome
 };
-type Props = FitProps | { layout: ExtractedLayout; compact?: boolean };
+// Extracted-layout mode also drives swap: a furniture item (real SKU) or a room can be selected
+// for a piece / room swap when the matching select handler is supplied.
+type LayoutProps = {
+  layout: ExtractedLayout;
+  compact?: boolean;
+  selectedFurnitureKey?: string | null;
+  onSelectFurniture?: (f: ExtractedFurniture) => void;
+  selectedRoomId?: string | null;
+  onSelectRoom?: (r: ExtractedRoom) => void;
+};
+type Props = FitProps | LayoutProps;
 
 // Generated-fit instance presentation: which furniture SYMBOL stands in for each program
 // type, whether the type reads as an ENCLOSED room (drawn with a room outline + small label),
@@ -60,6 +72,10 @@ function roomFamilyFill(label: string): string {
 // Stable identity for a placed instance — used to pin/unpin rooms across regenerations.
 export const instanceKey = (it: Instance): string =>
   `${it.type}:${it.x.toFixed(2)}:${it.y.toFixed(2)}`;
+
+// Stable identity for a placed furniture item — used to select/replace the right one on swap.
+export const furnitureKey = (f: ExtractedFurniture): string =>
+  `${f.category}:${f.x.toFixed(2)}:${f.y.toFixed(2)}`;
 
 // wall poché per type — fill token (the solid cut band), legend-swatch token, label, and
 // the assumed cut THICKNESS in feet (weight hierarchy: perimeter/core heaviest, glass thinnest).
@@ -485,7 +501,7 @@ function PlanStage({
 }
 
 export default function PlanCanvas(props: Props) {
-  if ("layout" in props) return <LayoutPlan layout={props.layout} compact={props.compact} />;
+  if ("layout" in props) return <LayoutPlan {...props} />;
   return <FitPlan {...props} />;
 }
 
@@ -640,7 +656,14 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin, compact }: FitProps
 }
 
 /* ── real extracted-layout plan ── */
-function LayoutPlan({ layout, compact }: { layout: ExtractedLayout; compact?: boolean }) {
+function LayoutPlan({
+  layout,
+  compact,
+  selectedFurnitureKey,
+  onSelectFurniture,
+  selectedRoomId,
+  onSelectRoom,
+}: LayoutProps) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const view = useView(minx, miny, maxx, maxy);
   const usedTypes = useMemo(
@@ -704,14 +727,38 @@ function LayoutPlan({ layout, compact }: { layout: ExtractedLayout; compact?: bo
           const cx = r.center ? view.fx(r.center[0]) : null;
           const cy = r.center ? view.fy(r.center[1]) : null;
           const interactive = r.polygon.length >= 3;
+          const selectable = interactive && !!onSelectRoom;
+          const selected = selectable && selectedRoomId === r.id;
+          const name = r.label || "Room";
+          const sf = Math.round(r.area_sf);
           return (
             <g
               key={`room-${r.id}`}
-              className={interactive ? "layout-room" : undefined}
-              role={interactive ? "img" : undefined}
+              className={
+                [interactive ? "layout-room" : "", selected ? "is-selected" : ""]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              role={selectable ? "button" : interactive ? "img" : undefined}
               tabIndex={interactive ? 0 : undefined}
-              aria-label={interactive ? `${r.label || "Room"}, ${Math.round(r.area_sf)} square feet` : undefined}
-              {...(interactive ? api.bindRoom(r.label || "Room", r.area_sf) : {})}
+              aria-pressed={selectable ? selected : undefined}
+              aria-label={
+                interactive
+                  ? `${selectable ? "Swap " : ""}${name}, ${sf} square feet`
+                  : undefined
+              }
+              {...(interactive ? api.bindRoom(name, r.area_sf) : {})}
+              onClick={selectable ? () => { if (!api.didDrag()) onSelectRoom!(r); } : undefined}
+              onKeyDown={
+                selectable
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelectRoom!(r);
+                      }
+                    }
+                  : undefined
+              }
             >
               {interactive && (
                 <>
@@ -750,9 +797,29 @@ function LayoutPlan({ layout, compact }: { layout: ExtractedLayout; compact?: bo
           const tint = `var(${FURN[f.category] ?? "--furn-other"})`;
           const label = `${f.category}${f.brand ? ` · ${f.brand}` : ""}${f.model ? ` ${f.model}` : ""}`;
 
+          // only real-SKU items (f.model) can be swapped; wire selection when a handler is supplied
+          const selectable = !!f.model && !!onSelectFurniture;
+          const selected = selectable && selectedFurnitureKey === furnitureKey(f);
+          const swap: Record<string, unknown> = selectable
+            ? {
+                className: `layout-furn${selected ? " is-selected" : ""}`,
+                role: "button",
+                tabIndex: 0,
+                "aria-pressed": selected,
+                "aria-label": `Swap ${label}`,
+                onClick: () => { if (!api.didDrag()) onSelectFurniture!(f); },
+                onKeyDown: (e: React.KeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectFurniture!(f);
+                  }
+                },
+              }
+            : {};
+
           if (f.outline?.length) {
             return (
-              <g key={`f-${i}`} stroke="var(--furn-line)" vectorEffect="non-scaling-stroke">
+              <g key={`f-${i}`} stroke="var(--furn-line)" vectorEffect="non-scaling-stroke" {...swap}>
                 <title>{label}</title>
                 {f.outline.map((ring, j) => {
                   const closed =
@@ -779,6 +846,7 @@ function LayoutPlan({ layout, compact }: { layout: ExtractedLayout; compact?: bo
               transform={`translate(${ox} ${oy}) rotate(${-f.rotation} ${cx - ox} ${cy - oy})`}
               fill={tint}
               fillOpacity={0.14}
+              {...swap}
             >
               <title>{label}</title>
               {furnitureSymbol(f.category, f.w, f.h)}

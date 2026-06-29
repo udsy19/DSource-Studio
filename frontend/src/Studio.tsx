@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   downloadDxfFromFit,
   downloadIfc,
@@ -9,6 +9,8 @@ import {
   downloadTakeoffFromLayout,
   generateAlternatives,
   fetchLayoutBom,
+  fetchProducts,
+  fetchSettings,
   generateDetailed,
   generateFromConcept,
   ingestCad,
@@ -17,19 +19,23 @@ import {
   type Bom,
 } from "./api";
 import Dropzone from "./components/Dropzone";
-import PlanCanvas, { instanceKey } from "./components/PlanCanvas";
+import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
 import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
 import { layoutFromFit } from "./fitToLayout";
 import type {
   Alternative,
+  CatalogSetting,
   ConceptProgram,
   DetailedProgram,
+  ExtractedFurniture,
   ExtractedLayout,
+  ExtractedRoom,
   Instance,
   Metrics,
   Placement,
   Plan,
+  Product,
   RoomType,
 } from "./types";
 
@@ -146,6 +152,58 @@ const DEFAULT_DETAILED: DetailedProgram = {
   desk_depth_cm: 70,
 };
 
+// ── swap geometry ──
+// Map a read room's type/label onto the setting catalog's type vocabulary.
+function settingTypeForRoom(room: ExtractedRoom): string {
+  const s = `${room.type} ${room.label}`.toLowerCase();
+  if (/(office|cabin|director|manager|md\b)/.test(s)) return "private_office";
+  if (/(meet|conf|board|huddle|discuss|interview)/.test(s)) return "meeting_room";
+  return "collaboration"; // collab / lounge / breakout / anything else
+}
+
+// Re-anchor an outline (world-coord polylines) so its bbox centre lands on (cx, cy) — used to
+// drop a swapped piece in at the same place, regardless of the catalog outline's own origin.
+function placeOutline(
+  outline: [number, number][][] | undefined,
+  cx: number,
+  cy: number,
+): [number, number][][] | undefined {
+  if (!outline?.length) return outline;
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const ring of outline)
+    for (const [x, y] of ring) {
+      if (x < minx) minx = x;
+      if (x > maxx) maxx = x;
+      if (y < miny) miny = y;
+      if (y > maxy) maxy = y;
+    }
+  const dx = cx - (minx + maxx) / 2;
+  const dy = cy - (miny + maxy) / 2;
+  return outline.map((ring) => ring.map(([x, y]) => [x + dx, y + dy] as [number, number]));
+}
+
+// ray-casting point-in-polygon — which furniture sits inside a room (its centre falls in the poly)
+function pointInPolygon(px: number, py: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Recount furniture categories for the elements grid after a room swap, keeping non-furniture
+// tallies (doors) intact.
+function recountInventory(
+  prev: Record<string, number>,
+  furniture: ExtractedFurniture[],
+): Record<string, number> {
+  const inv: Record<string, number> = prev.door ? { door: prev.door } : {};
+  for (const f of furniture) inv[f.category] = (inv[f.category] ?? 0) + 1;
+  return inv;
+}
+
 export default function Studio() {
   const [studioMode, setStudioMode] = useState<"read" | "generate">("read");
 
@@ -170,6 +228,13 @@ export default function Studio() {
   const [exporting, setExporting] = useState<string | null>(null);
   const [bom, setBom] = useState<Bom | null>(null);
 
+  // Swap state — the selected furniture item OR room, and the fetched alternatives for it.
+  const [swapFurniture, setSwapFurniture] = useState<ExtractedFurniture | null>(null);
+  const [swapRoom, setSwapRoom] = useState<ExtractedRoom | null>(null);
+  const [swapProducts, setSwapProducts] = useState<Product[] | null>(null);
+  const [swapSettings, setSwapSettings] = useState<CatalogSetting[] | null>(null);
+  const [swapBusy, setSwapBusy] = useState(false);
+
   // Priced bill of materials — fetch when a layout with priced furniture (real SKUs) is shown.
   useEffect(() => {
     if (!layout || !layout.furniture.some((f) => f.list_price != null)) {
@@ -183,11 +248,119 @@ export default function Studio() {
     };
   }, [layout]);
 
+  // Piece-swap alternatives for the selected item's category.
+  useEffect(() => {
+    if (!swapFurniture) {
+      setSwapProducts(null);
+      return;
+    }
+    let live = true;
+    setSwapBusy(true);
+    fetchProducts(swapFurniture.category)
+      .then((p) => live && setSwapProducts(p))
+      .catch(() => live && setSwapProducts([]))
+      .finally(() => live && setSwapBusy(false));
+    return () => {
+      live = false;
+    };
+  }, [swapFurniture]);
+
+  // Room-swap settings that fit the selected room's footprint.
+  useEffect(() => {
+    if (!swapRoom) {
+      setSwapSettings(null);
+      return;
+    }
+    const xs = swapRoom.polygon.map((p) => p[0]);
+    const ys = swapRoom.polygon.map((p) => p[1]);
+    const w = Math.max(...xs) - Math.min(...xs);
+    const h = Math.max(...ys) - Math.min(...ys);
+    let live = true;
+    setSwapBusy(true);
+    fetchSettings(settingTypeForRoom(swapRoom), w, h)
+      .then((s) => live && setSwapSettings(s))
+      .catch(() => live && setSwapSettings([]))
+      .finally(() => live && setSwapBusy(false));
+    return () => {
+      live = false;
+    };
+  }, [swapRoom]);
+
+  const selectFurniture = (f: ExtractedFurniture) => {
+    setSwapRoom(null);
+    setSwapFurniture(f);
+  };
+  const selectRoom = (r: ExtractedRoom) => {
+    setSwapFurniture(null);
+    setSwapRoom(r);
+  };
+  const dismissSwap = () => {
+    setSwapFurniture(null);
+    setSwapRoom(null);
+  };
+
+  // Piece swap — replace the selected item with a catalog product, keeping its centre + rotation.
+  function applyPieceSwap(p: Product) {
+    if (!layout || !swapFurniture) return;
+    const key = furnitureKey(swapFurniture);
+    const furniture = layout.furniture.map((f) => {
+      if (furnitureKey(f) !== key) return f;
+      const cx = f.x + f.w / 2;
+      const cy = f.y + f.h / 2;
+      return {
+        ...f,
+        brand: p.brand,
+        model: p.model,
+        list_price: p.list_price ?? null,
+        w: p.w,
+        h: p.h,
+        x: cx - p.w / 2,
+        y: cy - p.h / 2,
+        outline: placeOutline(p.outline, cx, cy),
+      };
+    });
+    setLayout({ ...layout, furniture });
+    dismissSwap();
+  }
+
+  // Room swap — drop a setting's furniture into the room (anchored to its bbox min-corner),
+  // replacing every piece whose centre currently falls inside the room.
+  function applyRoomSwap(s: CatalogSetting) {
+    if (!layout || !swapRoom) return;
+    const poly = swapRoom.polygon;
+    const minx = Math.min(...poly.map((p) => p[0]));
+    const miny = Math.min(...poly.map((p) => p[1]));
+    const kept = layout.furniture.filter(
+      (f) => !pointInPolygon(f.x + f.w / 2, f.y + f.h / 2, poly),
+    );
+    const placed: ExtractedFurniture[] = s.furniture.map((sf) => {
+      const x = minx + sf.dx;
+      const y = miny + sf.dy;
+      return {
+        category: sf.category,
+        block_name: "",
+        brand: sf.brand,
+        model: sf.model,
+        list_price: sf.list_price ?? null,
+        x,
+        y,
+        w: sf.w,
+        h: sf.h,
+        rotation: sf.rotation,
+        outline: placeOutline(sf.outline, x + sf.w / 2, y + sf.h / 2),
+      };
+    });
+    const furniture = [...kept, ...placed];
+    setLayout({ ...layout, furniture, inventory: recountInventory(layout.inventory, furniture) });
+    dismissSwap();
+  }
+
   async function readLayout(f: File) {
     setBusy(true);
     setErr(null);
     setLayout(null);
     setAdoptedFit(null);
+    dismissSwap();
     setFile(f);
     try {
       // Read the REAL layout from the CAD — walls, rooms, and a furniture inventory straight from
@@ -245,6 +418,7 @@ export default function Studio() {
   function adoptLayout() {
     const sel = versions?.alternatives.find((a) => a.id === selectedId);
     if (!versions || !sel) return;
+    dismissSwap();
     setLayout(layoutFromFit(versions.plan, sel.testfit.instances));
     setAdoptedFit({ plan: versions.plan, alternative: sel });
     setStudioMode("read");
@@ -304,7 +478,17 @@ export default function Studio() {
                   ]}
                 />
               </div>
-              {view === "space" ? <SpaceView layout={layout} /> : <PlanCanvas layout={layout} />}
+              {view === "space" ? (
+                <SpaceView layout={layout} />
+              ) : (
+                <PlanCanvas
+                  layout={layout}
+                  selectedFurnitureKey={swapFurniture ? furnitureKey(swapFurniture) : null}
+                  onSelectFurniture={selectFurniture}
+                  selectedRoomId={swapRoom?.id ?? null}
+                  onSelectRoom={selectRoom}
+                />
+              )}
             </>
           ) : (
             <div className="empty">
@@ -356,6 +540,7 @@ export default function Studio() {
             onChange={(m) => {
               setStudioMode(m);
               setErr(null);
+              dismissSwap();
             }}
             options={[
               { value: "read", label: "Read layout" },
@@ -372,6 +557,54 @@ export default function Studio() {
 
             {layout && (
               <>
+                {swapFurniture && (
+                  <SwapPanel
+                    title={`Swap · ${swapFurniture.category}`}
+                    busy={swapBusy}
+                    empty={!!swapProducts && swapProducts.length === 0}
+                    onDismiss={dismissSwap}
+                  >
+                    {swapProducts?.map((p, i) => (
+                      <button
+                        type="button"
+                        className="export-btn"
+                        key={`${p.brand}-${p.model}-${i}`}
+                        onClick={() => applyPieceSwap(p)}
+                      >
+                        <span className="export-btn-label">
+                          {p.brand} {p.model}
+                        </span>
+                        <span className="export-btn-meta">
+                          {priceMeta(p.list_price, swapFurniture.list_price)}
+                        </span>
+                      </button>
+                    ))}
+                  </SwapPanel>
+                )}
+
+                {swapRoom && (
+                  <SwapPanel
+                    title={`Swap room · ${swapRoom.label || "Room"}`}
+                    busy={swapBusy}
+                    empty={!!swapSettings && swapSettings.length === 0}
+                    onDismiss={dismissSwap}
+                  >
+                    {swapSettings?.map((s) => (
+                      <button
+                        type="button"
+                        className="export-btn"
+                        key={s.id}
+                        onClick={() => applyRoomSwap(s)}
+                      >
+                        <span className="export-btn-label">{settingLabel(s.setting_type)}</span>
+                        <span className="export-btn-meta">
+                          {num(s.sqft)} sf · {s.furniture.length} pcs
+                        </span>
+                      </button>
+                    ))}
+                  </SwapPanel>
+                )}
+
                 <div>
                   <Eyebrow style={{ display: "block", marginBottom: 14 }}>
                     Elements · bill of components
@@ -716,6 +949,60 @@ function ElCount({ n, k }: { n: number; k: string }) {
     <div className="el-count">
       <span className="el-n">{num(n)}</span>
       <span className="el-k">{k}</span>
+    </div>
+  );
+}
+
+// Price + delta-vs-current for a swap alternative ("$1,240 · +$180"); "—" when unpriced.
+function priceMeta(price?: number | null, current?: number | null): string {
+  if (price == null) return "—";
+  const base = `$${num(price)}`;
+  if (current == null || current === price) return base;
+  const d = price - current;
+  return `${base} · ${d > 0 ? "+" : "−"}$${num(Math.abs(d))}`;
+}
+
+// "private_office" → "Private Office"
+const settingLabel = (t: string) =>
+  t.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Swap chooser — keyboard-accessible (focusable buttons, Enter applies, Esc/Done dismisses),
+// tokens only, mirroring the side-panel section + export-btn list styling.
+function SwapPanel({
+  title,
+  busy,
+  empty,
+  onDismiss,
+  children,
+}: {
+  title: string;
+  busy: boolean;
+  empty: boolean;
+  onDismiss: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="swap-panel"
+      role="group"
+      aria-label={title}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onDismiss();
+      }}
+    >
+      <div className="swap-head">
+        <Eyebrow>{title}</Eyebrow>
+        <button type="button" className="link-btn" onClick={onDismiss}>
+          Done
+        </button>
+      </div>
+      {busy ? (
+        <p className="disclaim">Finding alternatives…</p>
+      ) : empty ? (
+        <p className="disclaim">No alternatives in the catalog yet.</p>
+      ) : (
+        <div className="swap-list">{children}</div>
+      )}
     </div>
   );
 }

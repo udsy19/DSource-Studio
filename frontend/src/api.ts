@@ -224,6 +224,25 @@ export async function fetchLayoutBom(layout: import("./types").ExtractedLayout):
   return res.json();
 }
 
+// Piece-swap alternatives for a furniture category (real SKUs to drop in for one item).
+export async function fetchProducts(category: string): Promise<import("./types").Product[]> {
+  const res = await fetch(`/api/library/products?category=${encodeURIComponent(category)}`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
+// Room-swap alternatives — Steelcase settings that fit within the selected room's footprint.
+export async function fetchSettings(
+  type: string,
+  maxW: number,
+  maxH: number,
+): Promise<import("./types").CatalogSetting[]> {
+  const q = new URLSearchParams({ type, max_w: String(maxW), max_h: String(maxH) });
+  const res = await fetch(`/api/library/settings?${q}`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),
