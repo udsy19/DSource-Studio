@@ -20,12 +20,22 @@ def plan_payload(plan: PlanModel) -> dict:
     }
 
 
+def _instance_payload(i: FurnitureInstance) -> dict:
+    """Serialize one instance; SKU fields appear only when present so parametric instances (and
+    the existing payload shape) are unchanged."""
+    d = {"type": i.type, "x": i.x, "y": i.y, "w": i.w, "h": i.h, "rotation": i.rotation}
+    if i.brand is not None:
+        d["brand"] = i.brand
+    if i.model is not None:
+        d["model"] = i.model
+    if i.list_price is not None:
+        d["list_price"] = i.list_price
+    return d
+
+
 def testfit_payload(fit: TestFit) -> dict:
     return {
-        "instances": [
-            {"type": i.type, "x": i.x, "y": i.y, "w": i.w, "h": i.h, "rotation": i.rotation}
-            for i in fit.instances
-        ],
+        "instances": [_instance_payload(i) for i in fit.instances],
         "workstation_count": fit.workstation_count,
         "office_count": fit.office_count,
         "meeting_count": fit.meeting_count,
@@ -64,6 +74,8 @@ def fit_from_payload(d: dict) -> TestFit:
             FurnitureInstance(
                 type=i["type"], x=float(i["x"]), y=float(i["y"]),
                 w=float(i["w"]), h=float(i["h"]), rotation=int(i.get("rotation", 0)),
+                brand=i.get("brand"), model=i.get("model"),
+                list_price=float(i["list_price"]) if i.get("list_price") is not None else None,
             )
             for i in d.get("instances", [])
         ],

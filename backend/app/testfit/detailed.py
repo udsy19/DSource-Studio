@@ -41,10 +41,12 @@ from .layout import (
     _place_workstation_field,
     _placeable_region,
     _usable_boundary,
+    slot_settings,
 )
 from .metrics import compute_metrics
 from .payloads import plan_payload, testfit_payload
 from .rooms import RoomSpec, place_perimeter_rooms
+from .settings import Setting, load_settings
 from .zones import place_interior_rooms
 
 
@@ -217,6 +219,7 @@ def _placed_by_catalog_key(program, placed, density_scale: float) -> dict[str, i
 def _build_testfit(
     plan: PlanModel, program: DetailedProgram, spec: WorkstationSpec, density_scale: float,
     locked: list[FurnitureInstance] | None = None,
+    settings: list[Setting] | None = None,
 ) -> TestFit:
     """One Detailed test-fit: explicit rooms (honouring placement) + a workstation field.
 
@@ -247,6 +250,7 @@ def _build_testfit(
     workstations = _place_workstation_field(region, spec)
 
     instances = locked + room_instances + workstations
+    instances = slot_settings(instances, load_settings() if settings is None else settings)
     office_count = sum(1 for i in instances if i.type == "private_office")
     meeting_count = sum(1 for i in instances if i.type == "meeting_room")
     # Both huddles (collaboration) and booths (phone_booth) are enclosed clusters, not desks.

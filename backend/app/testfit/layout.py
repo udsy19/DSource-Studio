@@ -42,6 +42,7 @@ from shapely.prepared import prep
 
 from ..floorplan.dxf_ingest import PlanModel
 from .rooms import PRIVATE_OFFICE, MEETING_ROOM, place_perimeter_rooms
+from .settings import SLOTTABLE_TYPES, Setting, load_settings
 from .zones import COLLAB_SIZE_FT, place_collaboration_zones
 
 
@@ -93,6 +94,11 @@ class FurnitureInstance:
     w: float
     h: float
     rotation: int = 0  # degrees
+    # Carried only for SKU-tagged pieces slotted from a real Steelcase setting; None for the
+    # parametric room boxes + workstations the procedural packers place.
+    brand: str | None = None
+    model: str | None = None
+    list_price: float | None = None
 
 
 @dataclass
@@ -273,6 +279,55 @@ def _place_workstation_field(region, spec: WorkstationSpec) -> list[FurnitureIns
 
 
 # ---------------------------------------------------------------------------
+# Settings slotting: drop a real, SKU-tagged Steelcase room into a matching program room
+# ---------------------------------------------------------------------------
+
+def _pick_setting(inst: FurnitureInstance, settings: list[Setting]) -> Setting | None:
+    """Largest setting whose type matches the room and whose footprint fits the room box.
+
+    Deterministic: ties break on id. Translation-only (no rotation), so a setting is used only when
+    it fits the room in its built orientation; otherwise the room keeps the parametric box.
+    """
+    candidates = [
+        s for s in settings
+        if s.setting_type == inst.type and s.width_ft <= inst.w and s.height_ft <= inst.h
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda s: (s.sqft, s.id))
+
+
+def slot_settings(
+    instances: list[FurnitureInstance], settings: list[Setting]
+) -> list[FurnitureInstance]:
+    """Fill each enclosed room with a matching Steelcase setting's real, SKU-tagged furniture.
+
+    Additive + safe: the room box instance is KEPT (metrics + the room outline depend on it), and
+    the setting's furniture is added inside it — translated to the room origin and carrying
+    brand/model/list_price. A no-op when the library is empty or no setting matches a room, so with
+    no library the output is byte-for-byte unchanged.
+    """
+    if not settings:
+        return instances
+    out = list(instances)
+    for inst in instances:
+        if inst.type not in SLOTTABLE_TYPES:
+            continue
+        setting = _pick_setting(inst, settings)
+        if setting is None:
+            continue
+        out += [
+            FurnitureInstance(
+                type=f.category, x=round(inst.x + f.dx, 2), y=round(inst.y + f.dy, 2),
+                w=f.w, h=f.h, rotation=int(round(f.rotation)),
+                brand=f.brand, model=f.model, list_price=f.list_price,
+            )
+            for f in setting.furniture
+        ]
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -307,6 +362,7 @@ def generate_mixed_layout(
     plan: PlanModel,
     spec: WorkstationSpec | None = None,
     program: ProgramSpec | None = None,
+    settings: list[Setting] | None = None,
 ) -> TestFit:
     """Produce the full mixed test-fit: rooms (perimeter) + collab (interior) + workstations.
 
@@ -363,6 +419,7 @@ def generate_mixed_layout(
     instances += [FurnitureInstance(r.type, r.x, r.y, r.w, r.h, r.rotation) for r in rooms]
     instances += [FurnitureInstance(z.type, z.x, z.y, z.w, z.h, z.rotation) for z in zones]
     instances += workstations
+    instances = slot_settings(instances, load_settings() if settings is None else settings)
 
     office_count = sum(1 for r in rooms if r.type == "private_office")
     meeting_count = sum(1 for r in rooms if r.type == "meeting_room")

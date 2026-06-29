@@ -38,3 +38,24 @@ def test_fit_payload_round_trip():
     assert len(back.instances) == 1
     inst = back.instances[0]
     assert inst.type == "workstation" and inst.rotation == 90 and inst.w == 3.0
+
+
+def test_sku_fields_round_trip_and_omitted_when_absent():
+    """A slotted, SKU-tagged piece carries brand/model/list_price through the payload; a parametric
+    instance stays the legacy shape (no SKU keys), so existing payloads are unchanged."""
+    fit = TestFit(
+        workstation_count=0,
+        instances=[
+            FurnitureInstance("workstation", 1.0, 2.0, 3.0, 4.0, 0),  # parametric, no SKU
+            FurnitureInstance("desk", 5.0, 6.0, 5.0, 2.5, 0,
+                              brand="Steelcase", model="OBBORDER05", list_price=1200.0),
+        ],
+    )
+    payload = build_testfit_payload(fit)
+    assert set(payload["instances"][0]) == {"type", "x", "y", "w", "h", "rotation"}
+    assert payload["instances"][1]["model"] == "OBBORDER05"
+
+    back = fit_from_payload(payload)
+    parametric, skued = back.instances
+    assert parametric.brand is None and parametric.model is None and parametric.list_price is None
+    assert skued.brand == "Steelcase" and skued.model == "OBBORDER05" and skued.list_price == 1200.0

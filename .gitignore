@@ -25,6 +25,9 @@ backend/data/pricebooks/*.pdf
 *.glb
 *.gltf
 
+# ── Steelcase application DWGs + built settings library (licensing; not redistributable) ──
+data/steelcase/
+
 # ── Node / frontend ──
 node_modules/
 frontend/node_modules/
