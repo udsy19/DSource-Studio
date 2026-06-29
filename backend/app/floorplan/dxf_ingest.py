@@ -129,27 +129,74 @@ def _find_oda_converter() -> str | None:
 
 def _dwg_to_dxf_with_oda(oda: str, dwg: bytes) -> bytes:
     """ODA batch-converts a folder, so stage the DWG in its own input dir and read the DXF back.
-    Args: in-dir, out-dir, output-version, output-type, recurse, audit, [input-filter]."""
+    Args: in-dir, out-dir, output-version, output-type, recurse, audit, [input-filter].
+
+    ODA is a Qt GUI app. Prefer launching it via `open -g` (background, no focus steal / window
+    flash); if that path produces nothing, fall back to invoking the binary directly (which works
+    but grabs focus). Either way the result is cached by the caller, so it runs at most once per
+    file."""
     import glob
     import os
     import subprocess
     import tempfile
 
+    oda_args = ["ACAD2018", "DXF", "0", "1", "*.DWG"]
+    app = oda.split("/Contents/MacOS/")[0] if "/Contents/MacOS/" in oda else ""
+
     with tempfile.TemporaryDirectory() as ind, tempfile.TemporaryDirectory() as outd:
         with open(os.path.join(ind, "in.dwg"), "wb") as f:
             f.write(dwg)
-        subprocess.run(
-            [oda, ind, outd, "ACAD2018", "DXF", "0", "1", "*.DWG"],
-            capture_output=True, text=True, timeout=180,
-        )
-        outs = glob.glob(os.path.join(outd, "*.dxf")) + glob.glob(os.path.join(outd, "*.DXF"))
-        if not outs or os.path.getsize(outs[0]) == 0:
+
+        def _out() -> str | None:
+            outs = glob.glob(os.path.join(outd, "*.dxf")) + glob.glob(os.path.join(outd, "*.DXF"))
+            return outs[0] if outs and os.path.getsize(outs[0]) > 0 else None
+
+        cmds = []
+        if app.endswith(".app"):  # background launch, no window steal
+            cmds.append(["open", "-g", "-W", "-a", app, "--args", ind, outd, *oda_args])
+        cmds.append([oda, ind, outd, *oda_args])  # direct call — always works, grabs focus
+
+        for cmd in cmds:
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            except Exception:  # noqa: BLE001 - try the next launch strategy
+                continue
+            if _out():
+                break
+
+        out = _out()
+        if not out:
             raise RuntimeError("ODA File Converter produced no DXF.")
-        with open(outs[0], "rb") as f:
+        with open(out, "rb") as f:
             return f.read()
 
 
 def _dwg_to_dxf_bytes(dwg: bytes) -> bytes:
+    """Cached DWG -> DXF. Converting launches an external converter (ODA), so cache the result by
+    content hash under ~/.cache/dsource/dwg — each unique DWG converts exactly ONCE, ever, so the
+    converter never re-launches for a file already seen."""
+    import hashlib
+    import pathlib
+
+    key = hashlib.sha256(dwg).hexdigest()
+    cache_dir = pathlib.Path.home() / ".cache" / "dsource" / "dwg"
+    cached = cache_dir / f"{key}.dxf"
+    try:
+        if cached.exists() and cached.stat().st_size > 0:
+            return cached.read_bytes()
+    except OSError:
+        pass
+
+    dxf = _convert_dwg_to_dxf(dwg)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(dxf)
+    except OSError:  # a read-only cache dir must not break conversion
+        pass
+    return dxf
+
+
+def _convert_dwg_to_dxf(dwg: bytes) -> bytes:
     """Convert DWG -> DXF (ezdxf can't read DWG natively). Prefer ODA File Converter (handles CET/
     Steelcase exports); fall back to LibreDWG's dwg2dxf (`brew install libredwg`)."""
     import os
