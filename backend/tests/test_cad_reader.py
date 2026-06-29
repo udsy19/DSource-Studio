@@ -184,3 +184,32 @@ def test_real_dwg_inventory():
     assert layout.units == "ft"
     assert layout.inventory.get("chair", 0) > 50
     assert layout.inventory.get("workstation", 0) > 50
+
+
+def _cet_dxf() -> bytes:
+    """A Configura CET / Steelcase-style export: an anonymous block (*C1) on A-FURN carrying the
+    product spec as CAP* attributes — the form ODA File Converter preserves."""
+    doc = ezdxf.new(setup=True)
+    doc.header["$INSUNITS"] = 1  # inches
+    msp = doc.modelspace()
+    blk = doc.blocks.new(name="*C1")
+    blk.add_lwpolyline([(0, 0), (24, 0), (24, 24), (0, 24)], close=True)  # 2 ft sq footprint
+    ref = msp.add_blockref("*C1", (50, 50), dxfattribs={"layer": "A-FURN"})
+    ref.add_attrib("CAPPD", "Steelcase Series 2; Chair-Upholstered back")
+    ref.add_attrib("CAPPN", "436UPH")
+    ref.add_attrib("CAPMG", "Steelcase")
+    text = io.StringIO()
+    doc.write(text)
+    return text.getvalue().encode("utf-8")
+
+
+def test_cet_spec_attributes_yield_branded_skutagged_furniture():
+    """An anonymous CET block resolves to a real product: category from the description, brand from
+    the manufacturer, model from the part number — not the meaningless block name."""
+    layout = read_cad(_cet_dxf(), "application.dxf")
+    chairs = [f for f in layout.furniture if f.category == "chair"]
+    assert len(chairs) == 1, f"expected the CAPPD 'Chair' to classify as a chair, got {layout.inventory}"
+    c = chairs[0]
+    assert c.brand == "Steelcase"
+    assert c.model == "436UPH"
+    assert "Series 2" in c.block_name

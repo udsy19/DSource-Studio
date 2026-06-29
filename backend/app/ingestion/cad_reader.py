@@ -33,12 +33,13 @@ from .schema import Door, ExtractedLayout, FurnitureItem, Room, Wall
 # as furniture (see read_cad).
 _CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("chair", ("task chair", "silq", "series 1", "side chair", "club chair",
-               "guest chair", "swivel chair", "conference chair", "seating")),
+               "guest chair", "swivel chair", "conference chair", "seating",
+               "chair", "armchair")),  # plain "chair" catches CET specs ("Gesture; Chair, ...")
     ("workstation", ("workstation", "bench")),
     ("desk", ("desk",)),
     ("table", ("conference table", "pedestal", "table")),
-    ("sofa", ("sofa", "lounge", "settee", "recliner", "banquette")),
-    ("stool", ("barstool", "stool")),
+    ("sofa", ("sofa", "lounge", "settee", "recliner", "banquette", "ottoman", "pouf")),
+    ("stool", ("barstool", "bar stool", "stool")),
     ("tv", ("flat_screen", "tv", "screen")),
     ("mullion", ("mullion",)),  # glazing framing — not a glass panel; kept out of the panel count
     ("panel", ("system panel", "glazed")),
@@ -133,6 +134,25 @@ def read_cad(content: bytes, filename: str) -> ExtractedLayout:
     )
 
 
+def _cet_spec(ins) -> dict[str, str] | None:
+    """CET / Steelcase INSERTs carry the product spec as block ATTRIBs — CAPPD (description),
+    CAPPN (part number / SKU), CAPMG (manufacturer), CAPPL (list price). Return them when present,
+    so an anonymous block (`*C12`) resolves to a real, named, sourceable product."""
+    attribs = getattr(ins, "attribs", None)
+    if not attribs:
+        return None
+    a = {str(x.dxf.tag).strip(): str(x.dxf.text).strip() for x in attribs}
+    desc = a.get("CAPPD") or a.get("CAPPN")
+    if not desc:
+        return None
+    return {
+        "desc": desc,
+        "part": a.get("CAPPN") or a.get("PSPN") or "",
+        "mfg": a.get("CAPMG") or "",
+        "price": a.get("CAPPL") or "",
+    }
+
+
 def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
     furniture: list[FurnitureItem] = []
     doors: list[Door] = []
@@ -140,7 +160,10 @@ def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
     for ins in msp.query("INSERT"):
         name = str(ins.dxf.name)
         layer = str(getattr(ins.dxf, "layer", "")).upper()
-        category = _classify_category(name)
+        # CET/Steelcase: classify + name from the product spec attributes, not the anonymous block.
+        spec = _cet_spec(ins)
+        label = spec["desc"] if spec else name
+        category = _classify_category(label)
         is_door = category == "door" or layer.startswith("A-DOOR") or layer == "DOOR"
 
         # A MINSERT lays the same block out on a grid; expand to one item per cell so we don't
@@ -158,9 +181,9 @@ def _read_inserts(msp, lf: float) -> tuple[list[FurnitureItem], list[Door]]:
             else:
                 furniture.append(FurnitureItem(
                     category=category,
-                    block_name=name,
-                    brand=_extract_brand(name),
-                    model=_extract_model(name),
+                    block_name=label,
+                    brand=(spec["mfg"] if spec and spec["mfg"] else _extract_brand(label)),
+                    model=(spec["part"] if spec and spec["part"] else _extract_model(label)),
                     x=x, y=y, w=w, h=h,
                     rotation=rotation,
                 ))

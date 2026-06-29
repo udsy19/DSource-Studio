@@ -90,6 +90,35 @@ Use a proper DWG→DXF converter that preserves anonymous-block references:
 Once converted cleanly, `cad_reader` should yield each application's furniture footprints + SKU
 attributes — and the "applications as building blocks" plan proceeds.
 
+## PROVEN with ODA File Converter (2026-06-28)
+
+Installed ODA File Converter and wired `_dwg_to_dxf_bytes` to prefer it (LibreDWG fallback). It
+preserves the anonymous-block linkage LibreDWG destroyed — **all 39 INSERTs in APL00122 resolve to
+their definitions**. The applications now ingest, and each spec'd item carries its full product data
+in CAP* block attributes:
+
+```
+*C32  CAPPD="Steelcase Series 2; Chair-Upholstered back"  CAPPN=436UPH
+      CAPMG=Steelcase  CAPPL=$1,409.00  CAPQT=1
+```
+
+`cad_reader` now reads those attributes (`_cet_spec`): an anonymous `*C{n}` block resolves to a
+**categorized, branded, SKU-tagged** FurnitureItem (category from CAPPD, brand=CAPMG, model=CAPPN,
+name=CAPPD) — e.g. `[chair] Steelcase 442A40 — Gesture; Chair`, `[table] Steelcase OBBORDER05`. The
+user's own plate is unaffected (still 617 items; locked by `test_cad_reader.py`). Across the 29 apps,
+95 items carry full spec (the rest are geometry sub-parts). **The idea is validated end-to-end.**
+
+### Still on the table (the BOM gold)
+`CAPPL` (list price) + `CAPQT` (qty) are right there in the attributes. `FurnitureItem` has no price
+field yet — adding one (or a parallel BOM extract) turns every ingested application into a **priced
+bill of materials**, directly feeding Specify-mode quoting.
+
+### Next: settings library + generator slotting
+With clean ingestion proven, build the `settings` store (setting_type, sqft, footprint, furniture[]
+with SKU+price, source_app_id) from these apps, then slot a matching application into each generated
+program room. (Licensing gate still applies before harvesting at scale — these were specifier
+downloads for a private proof-of-concept.)
+
 ## Proposed first step
 
 Download 2-3 *Private Office* + *Workstation* applications as DWG and run them through `cad_reader` to
