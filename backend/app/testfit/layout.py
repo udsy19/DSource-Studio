@@ -41,9 +41,9 @@ from shapely.geometry import Point, Polygon, box
 from shapely.prepared import prep
 
 from ..floorplan.dxf_ingest import PlanModel
-from .rooms import PRIVATE_OFFICE, MEETING_ROOM, place_perimeter_rooms
-from .settings import SLOTTABLE_TYPES, Setting, load_settings
-from .zones import COLLAB_SIZE_FT, place_collaboration_zones
+from .rooms import PRIVATE_OFFICE, MEETING_ROOM, RoomSpec, place_perimeter_rooms
+from .settings import SLOT_CATS, SLOTTABLE_TYPES, Setting, load_settings, pick_settings
+from .zones import COLLAB_SIZE_FT, place_collaboration_zones, place_interior_rooms
 
 
 _CM_PER_FT = 30.48
@@ -285,19 +285,37 @@ def _place_workstation_field(region, spec: WorkstationSpec) -> list[FurnitureIns
 # Settings slotting: drop a real, SKU-tagged Steelcase room into a matching program room
 # ---------------------------------------------------------------------------
 
-# Recognizable furniture worth drawing in a room. Everything else in a CET setting — the "other"
-# sub-component blocks (a chair explodes into base/bracket/seat parts that overlap), plus glass
-# panels/mullions — is dropped; slotting all of it was the source of the overlapping tangle.
-_SLOT_CATS = {"chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter"}
-_ROOM_CLEAR = 1.0  # ft kept clear between the slotted setting and the room walls
+ROOM_CLEAR = 1.0  # ft kept clear between a setting and the room walls
+
+
+def furnish_room(x: float, y: float, w: float, h: float, setting: Setting) -> list[FurnitureInstance]:
+    """A specific Steelcase setting's real furniture, CENTERED in a room box and filtered to
+    SLOT_CATS (the un-categorized CET sub-parts + glass are dropped). Any piece that would fall
+    outside the room is skipped, so nothing spills over a wall. When the room is the setting's
+    footprint + 2·ROOM_CLEAR (settings-as-rooms), every piece fits with clearance."""
+    ox = x + (w - setting.width_ft) / 2
+    oy = y + (h - setting.height_ft) / 2
+    room = box(x, y, x + w, y + h)
+    out: list[FurnitureInstance] = []
+    for f in setting.furniture:
+        if f.category not in SLOT_CATS:
+            continue
+        fx = round(ox + f.dx, 2)
+        fy = round(oy + f.dy, 2)
+        if not room.contains(box(fx, fy, fx + f.w, fy + f.h)):
+            continue
+        out.append(FurnitureInstance(
+            type=f.category, x=fx, y=fy, w=f.w, h=f.h, rotation=int(round(f.rotation)),
+            brand=f.brand, model=f.model, list_price=f.list_price, slotted=True,
+        ))
+    return out
 
 
 def _fitting_settings(inst: FurnitureInstance, settings: list[Setting]) -> list[Setting]:
     """Settings whose type matches the room and whose footprint fits inside the room MINUS a
-    wall-clearance margin (so the centered setting never touches the walls), largest first.
-    Translation-only (no rotation): a setting is used only if it fits in its built orientation."""
-    avail_w = inst.w - 2 * _ROOM_CLEAR
-    avail_h = inst.h - 2 * _ROOM_CLEAR
+    wall-clearance margin (so the centered setting never touches the walls), largest first."""
+    avail_w = inst.w - 2 * ROOM_CLEAR
+    avail_h = inst.h - 2 * ROOM_CLEAR
     return sorted(
         (s for s in settings
          if s.setting_type == inst.type and s.width_ft <= avail_w and s.height_ft <= avail_h),
@@ -308,13 +326,11 @@ def _fitting_settings(inst: FurnitureInstance, settings: list[Setting]) -> list[
 def slot_settings(
     instances: list[FurnitureInstance], settings: list[Setting]
 ) -> list[FurnitureInstance]:
-    """Fill each enclosed room with a matching Steelcase setting's real furniture.
+    """Furnish each PARAMETRIC enclosed room by re-picking a Steelcase setting that fits inside it.
 
-    The setting is CENTERED in the room (with a wall-clearance margin), only recognizable furniture
-    is placed (_SLOT_CATS — the un-categorized sub-component blocks that cluttered the plan are
-    dropped), and any piece that would fall outside the room is skipped, so nothing spills over a
-    wall. The room box instance is KEPT (metrics + the room outline depend on it). A no-op when the
-    library is empty, so with no library the output is byte-for-byte unchanged.
+    Used by the Detailed program, whose rooms are fixed program rectangles (Concept's
+    generate_mixed_layout instead sizes each room to its setting and furnishes from it directly).
+    A no-op when the library is empty, so the output is unchanged with no library.
     """
     if not settings:
         return instances
@@ -328,22 +344,23 @@ def slot_settings(
             continue
         i = used.get(inst.type, 0)
         used[inst.type] = i + 1
-        setting = candidates[i % len(candidates)]
-        ox = inst.x + (inst.w - setting.width_ft) / 2  # centre the setting footprint in the room
-        oy = inst.y + (inst.h - setting.height_ft) / 2
-        room = box(inst.x, inst.y, inst.x + inst.w, inst.y + inst.h)
-        for f in setting.furniture:
-            if f.category not in _SLOT_CATS:
-                continue
-            x = round(ox + f.dx, 2)
-            y = round(oy + f.dy, 2)
-            if not room.contains(box(x, y, x + f.w, y + f.h)):  # would cross a wall -> skip
-                continue
-            out.append(FurnitureInstance(
-                type=f.category, x=x, y=y, w=f.w, h=f.h, rotation=int(round(f.rotation)),
-                brand=f.brand, model=f.model, list_price=f.list_price, slotted=True,
-            ))
+        out += furnish_room(inst.x, inst.y, inst.w, inst.h, candidates[i % len(candidates)])
     return out
+
+
+def _setting_room_specs(lib: list[Setting], setting_type: str, n: int) -> list[RoomSpec]:
+    """RoomSpecs for up to `n` enclosed rooms, each sized to a chosen Steelcase application's
+    footprint plus a wall-clearance margin, and tagged with that application so the room is
+    furnished from it. Empty when the library has no placeable setting of the type."""
+    return [
+        RoomSpec(
+            type=setting_type,
+            width_ft=round(s.width_ft + 2 * ROOM_CLEAR, 2),
+            depth_ft=round(s.height_ft + 2 * ROOM_CLEAR, 2),
+            setting=s,
+        )
+        for s in pick_settings(lib, setting_type, n)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -399,13 +416,23 @@ def generate_mixed_layout(
     cores = _cores(plan)
     columns = _column_circles(plan, spec)
 
-    # 1) Perimeter rooms (offices + meeting rooms) against the exterior wall.
+    lib = load_settings() if settings is None else settings
+
+    # 1) Perimeter rooms (offices + meeting rooms) against the exterior wall. With a Steelcase
+    #    library each room is sized to a real application's footprint (so the rich, fully-furnished
+    #    applications actually get used, not just the few tiny ones that fit a parametric box);
+    #    without one, fall back to parametric program rectangles.
+    office_specs = _setting_room_specs(lib, "private_office", prog["target_offices"])
+    meeting_specs = _setting_room_specs(lib, "meeting_room", prog["target_meetings"])
+    room_order = (
+        meeting_specs + office_specs
+        if (office_specs or meeting_specs)
+        else [MEETING_ROOM] * prog["target_meetings"] + [PRIVATE_OFFICE] * prog["target_offices"]
+    )
     rooms = place_perimeter_rooms(
         boundary_poly=usable, cores=cores, column_circles=columns,
         setback_ft=0.0,  # `usable` is already inset by the perimeter setback
-        target_offices=prog["target_offices"],
-        target_meetings=prog["target_meetings"],
-        column_clearance_ft=spec.column_clearance_ft,
+        column_clearance_ft=spec.column_clearance_ft, room_order=room_order,
     )
     room_polys = [box(r.x, r.y, r.x + r.w, r.y + r.h) for r in rooms]
 
@@ -422,10 +449,16 @@ def generate_mixed_layout(
     for rp in room_polys:
         region = region.difference(rp.buffer(eps))
 
-    # 2) Collaboration lounges in the interior.
-    zones = place_collaboration_zones(
-        placeable_region=region, occupied_polys=list(room_polys),
-        target_count=prog["target_collaboration"], size_ft=COLLAB_SIZE_FT,
+    # 2) Collaboration in the interior — real collaboration applications (sized to their footprint)
+    #    when the library has them, else fixed-size lounges.
+    collab_specs = _setting_room_specs(lib, "collaboration", prog["target_collaboration"])
+    zones = (
+        place_interior_rooms(region, occupied_polys=list(room_polys), room_order=collab_specs)
+        if collab_specs
+        else place_collaboration_zones(
+            placeable_region=region, occupied_polys=list(room_polys),
+            target_count=prog["target_collaboration"], size_ft=COLLAB_SIZE_FT,
+        )
     )
     zone_polys = [box(z.x, z.y, z.x + z.w, z.y + z.h) for z in zones]
 
@@ -438,7 +471,11 @@ def generate_mixed_layout(
     instances += [FurnitureInstance(r.type, r.x, r.y, r.w, r.h, r.rotation) for r in rooms]
     instances += [FurnitureInstance(z.type, z.x, z.y, z.w, z.h, z.rotation) for z in zones]
     instances += workstations
-    instances = slot_settings(instances, load_settings() if settings is None else settings)
+    # Furnish each enclosed room from the real Steelcase application it was sized to.
+    for r in (*rooms, *zones):
+        setting = getattr(r, "setting", None)
+        if setting is not None:
+            instances += furnish_room(r.x, r.y, r.w, r.h, setting)
 
     office_count = sum(1 for r in rooms if r.type == "private_office")
     meeting_count = sum(1 for r in rooms if r.type == "meeting_room")

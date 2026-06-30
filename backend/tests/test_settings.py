@@ -123,9 +123,10 @@ def test_save_load_round_trip(tmp_path):
     assert load_settings(path) == settings
 
 
-def test_generator_slots_when_library_present_and_is_noop_when_absent():
-    """Wiring check through the real generator: a 140x90 plate with offices slots the setting's
-    furniture when a library is passed, and produces an identical fit when the library is empty."""
+def test_generator_furnishes_rooms_from_settings_and_is_parametric_without():
+    """Through the real generator: with a Steelcase library, each enclosed room is sized to a real
+    application and furnished from it (SKU-tagged, slotted); with no library, rooms are parametric
+    boxes with no furniture."""
     from app.floorplan.dxf_ingest import PlanModel
     from app.testfit.layout import ProgramSpec, generate_mixed_layout
 
@@ -137,17 +138,22 @@ def test_generator_slots_when_library_present_and_is_noop_when_absent():
         columns=[], cores=[], needs_confirmation=False, notes=[],
     )
     program = ProgramSpec(headcount=40)
+    # a realistic-footprint office application (within the placeable size band)
+    office = Setting(
+        id="APL1", setting_type="private_office", sqft=132.0, width_ft=12.0, height_ft=11.0,
+        furniture=[
+            SettingFurniture("desk", "Steelcase", "OBBORDER05", 1200.0, 1.0, 1.0, 5.0, 2.5, 0),
+            SettingFurniture("chair", "Steelcase", "442A40", 1409.0, 5.0, 6.0, 2.0, 2.0, 0),
+        ],
+    )
 
     bare = generate_mixed_layout(plan, program=program, settings=[])
-    slotted = generate_mixed_layout(plan, program=program, settings=[_office_setting()])
+    furnished = generate_mixed_layout(plan, program=program, settings=[office])
 
     assert any(i.type == "private_office" for i in bare.instances)
-    assert not any(i.model for i in bare.instances)
-    assert any(i.model == "OBBORDER05" for i in slotted.instances)
-    # office room boxes are preserved (slotting is additive, not a replacement).
-    bare_offices = [i for i in bare.instances if i.type == "private_office"]
-    slot_offices = [i for i in slotted.instances if i.type == "private_office"]
-    assert len(bare_offices) == len(slot_offices)
+    assert not any(i.model for i in bare.instances)  # parametric: no furniture
+    placed = [i for i in furnished.instances if i.model == "OBBORDER05"]
+    assert placed and all(i.slotted for i in placed)  # furnished from the application, marked slotted
 
 
 def test_products_only_skud_and_alternatives_queries():

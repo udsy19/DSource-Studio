@@ -26,6 +26,46 @@ from ..ingestion.schema import ExtractedLayout
 # equality. "open" is a workstation field — kept OUT of room slotting (the open plan stays as-is).
 SLOTTABLE_TYPES = ("private_office", "meeting_room", "collaboration")
 
+# Recognized furniture a room is furnished with — the rest of a CET setting is un-spec'd
+# sub-component blocks (chair bases/brackets) and glass panels/mullions, dropped so a furnished
+# room doesn't tangle. Single source of truth, shared with the generator.
+SLOT_CATS = frozenset({
+    "chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter",
+})
+
+# Sane room footprint per type: drops CAD-unit-glitch outliers (21 sf, 64,000 sf, even 7.7-billion
+# sf) AND keeps each enclosed room a realistic size so MANY rich applications place on a plate
+# (picking only the biggest leaves a floor with 2–3 rooms). (sqft_min, sqft_max), and a hard ft cap.
+_ROOM_MIN_FT, _ROOM_MAX_FT = 4.0, 32.0
+_ROOM_SQFT_BAND: dict[str, tuple[float, float]] = {
+    "private_office": (70.0, 320.0),
+    "meeting_room": (110.0, 650.0),
+    "collaboration": (90.0, 600.0),
+}
+
+
+def placeable_settings(settings: list["Setting"], setting_type: str) -> list["Setting"]:
+    """Settings of a type with a realistic room footprint AND real furniture — eligible to be used
+    as a room (a whole Steelcase application sized to its own footprint). Smaller realistic rooms
+    first, so more of them fit a plate (and more of the 682-setting library actually gets used)."""
+    lo, hi = _ROOM_SQFT_BAND.get(setting_type, (40.0, 700.0))
+    ok = [
+        s for s in settings
+        if s.setting_type == setting_type
+        and _ROOM_MIN_FT <= s.width_ft <= _ROOM_MAX_FT
+        and _ROOM_MIN_FT <= s.height_ft <= _ROOM_MAX_FT
+        and lo <= s.sqft <= hi
+        and any(f.category in SLOT_CATS for f in s.furniture)
+    ]
+    return sorted(ok, key=lambda s: (s.sqft, s.id))
+
+
+def pick_settings(settings: list["Setting"], setting_type: str, n: int) -> list["Setting"]:
+    """Choose `n` settings of a type to place as rooms, cycling the placeable pool for variety
+    (largest/richest first). [] when the library has none of that type."""
+    avail = placeable_settings(settings, setting_type)
+    return [avail[i % len(avail)] for i in range(n)] if avail else []
+
 # Steelcase library folders (and manifest setting_types) -> our generator setting_type. The library
 # is organized by Steelcase's own categories, which are far more reliable than inferring from the
 # (often sparse) furniture mix. Anything unmapped falls back to furniture-mix inference.

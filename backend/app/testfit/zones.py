@@ -119,6 +119,7 @@ def place_interior_rooms(
                 continue
             placed.append(PlacedRoom(
                 type=spec.type, x=round(x, 2), y=round(y, 2), w=w, h=h, rotation=0,
+                setting=spec.setting,
             ))
             placed_polys.append(rect)
             break

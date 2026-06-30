@@ -96,7 +96,9 @@ def test_meeting_room_size_is_reasonable():
     _plan, _spec, fit = _fit()
     for i in fit.instances:
         if i.type == "meeting_room":
-            assert i.w * i.h >= 200  # ~15x20 ft footprint
+            # sized to a real Steelcase meeting application (>= ~110 sf setting + clearance), not a
+            # tiny box; the legacy parametric room was a fixed 20x15.
+            assert i.w * i.h >= 100
 
 
 def _seeded_session():

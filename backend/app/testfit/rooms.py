@@ -24,9 +24,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from shapely.geometry import Point, Polygon, box
 from shapely.prepared import prep
+
+if TYPE_CHECKING:
+    from .settings import Setting
 
 
 @dataclass
@@ -34,6 +38,7 @@ class RoomSpec:
     type: str
     width_ft: float
     depth_ft: float  # depth measured perpendicular to the wall it sits against
+    setting: "Setting | None" = None  # the Steelcase application this room IS (sized to its footprint)
 
 
 # Reasonable program rectangles (feet). Depth = how far the room reaches in from the wall.
@@ -49,6 +54,7 @@ class PlacedRoom:
     w: float
     h: float
     rotation: int = 0
+    setting: "Setting | None" = None  # the Steelcase application that furnishes this room
 
 
 def _edges(boundary: Polygon) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -168,6 +174,7 @@ def _place_one_along_walls(
                 placed.append(PlacedRoom(
                     type=spec.type, x=round(minx, 2), y=round(miny, 2),
                     w=round(maxx - minx, 2), h=round(maxy - miny, 2), rotation=0,
+                    setting=spec.setting,
                 ))
                 placed_polys.append(rect)
                 return True
