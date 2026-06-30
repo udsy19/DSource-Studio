@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { renderView } from "../api";
+import { fetchGeometry, renderView, type SymbolGeometry } from "../api";
 import type { ExtractedLayout, ExtractedRoom, Instance, Plan } from "../types";
+
+type Geo = Record<string, SymbolGeometry>;
 
 /* Axonometric "paper model" — a pure-SVG 2.5D view. No WebGL, so it can never lose its context or
    fail to compile; it renders instantly and reads like the ink-on-paper 2D plan. Walls + furniture
@@ -109,6 +111,21 @@ function silhouette(outline: Pt[][]): { foot: Pt[]; detail: Pt[][] } | null {
   return { foot: best, detail: rings.filter((r) => r !== best) };
 }
 
+// place a product's real geometry (rings re-based to a [0..w]×[0..h] box) at a slotted piece:
+// centre on the piece, rotate to its orientation.
+function placedOutline(g: SymbolGeometry, cx: number, cy: number, rotDeg: number): Pt[][] {
+  const a = (rotDeg * Math.PI) / 180;
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  return g.outline.map((ring) =>
+    ring.map(([x, y]) => {
+      const lx = x - g.w / 2;
+      const ly = y - g.h / 2;
+      return [cx + lx * ca - ly * sa, cy + lx * sa + ly * ca] as Pt;
+    }),
+  );
+}
+
 // ── scene assembly ──
 type Item = { foot: Pt[]; z1: number; base: RGB; detail?: Pt[][] };
 type Wall = { a: Pt; b: Pt; h: number; glass?: boolean; cut?: boolean };
@@ -151,7 +168,7 @@ function sceneFromLayout(layout: ExtractedLayout): Scene {
 
 const ENCLOSED = new Set(["private_office", "meeting_room", "collaboration"]);
 
-function sceneFromPlan(plan: Plan, instances: Instance[]): Scene {
+function sceneFromPlan(plan: Plan, instances: Instance[], geo: Geo): Scene {
   const xs = plan.boundary.map((p) => p[0]);
   const ys = plan.boundary.map((p) => p[1]);
   const center: Pt = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
@@ -164,12 +181,22 @@ function sceneFromPlan(plan: Plan, instances: Instance[]): Scene {
   const items: Item[] = [];
   for (const i of instances) {
     if (i.slotted) {
-      items.push({ foot: shapeFoot(i.type, i.x, i.y, i.w, i.h, i.rotation), z1: HEIGHTS[i.type] ?? HEIGHTS.other, base: furnTone(i.type) });
+      // use the SKU's real plan silhouette once fetched, else a per-category footprint
+      const g = i.model ? geo[i.model] : undefined;
+      const sil = g?.outline?.length
+        ? silhouette(placedOutline(g, i.x + i.w / 2, i.y + i.h / 2, i.rotation))
+        : null;
+      items.push({
+        foot: sil ? sil.foot : shapeFoot(i.type, i.x, i.y, i.w, i.h, i.rotation),
+        z1: HEIGHTS[i.type] ?? HEIGHTS.other,
+        base: furnTone(i.type),
+        detail: sil?.detail.length ? sil.detail : undefined,
+      });
       continue;
     }
     const corners = rectCorners(i.x, i.y, i.w, i.h, i.rotation);
     if (ENCLOSED.has(i.type)) {
-      const glass = i.type === "meeting_room";
+      const glass = i.type === "meeting_room" || i.type === "private_office"; // modern glass fronts
       for (let k = 0; k < corners.length; k++)
         walls.push({ a: corners[k], b: corners[(k + 1) % corners.length], h: glass ? GLASS_H : PARTITION_H, glass });
       const tint = zoneTint(i.type);
@@ -243,11 +270,37 @@ const ptsStr = (pts: Pt[]) => pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2
 export default function SpaceView(props: { layout: ExtractedLayout } | { plan: Plan; instances: Instance[] }) {
   const [q, setQ] = useState(0);
   const [render, setRender] = useState<null | { busy: boolean; img: string | null; err: string | null }>(null);
+  const [geo, setGeo] = useState<Geo>({});
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  // generate path: fetch each slotted SKU's real geometry once so its true shape replaces the
+  // procedural footprint (the read path already carries outlines).
+  const slottedSkus = "instances" in props
+    ? [...new Set(props.instances.filter((i) => i.slotted && i.model).map((i) => i.model as string))].sort().join(",")
+    : "";
+  useEffect(() => {
+    if (!slottedSkus) return;
+    let live = true;
+    Promise.all(
+      slottedSkus.split(",").map(async (sku): Promise<[string, SymbolGeometry] | null> => {
+        try {
+          const g = await fetchGeometry(sku);
+          return g.outline?.length ? [sku, g] : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rs) => {
+      if (live) setGeo(Object.fromEntries(rs.filter((r): r is [string, SymbolGeometry] => r !== null)));
+    });
+    return () => {
+      live = false;
+    };
+  }, [slottedSkus]);
+
   const scene = useMemo(
-    () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances)),
-    [props],
+    () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances, geo)),
+    [props, geo],
   );
   const { faces, floor, zones, shadows } = useMemo(() => buildFaces(scene, q), [scene, q]);
 
@@ -288,7 +341,13 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     <div className="axon">
       <svg ref={svgRef} className="axon-svg" viewBox={vb} preserveAspectRatio="xMidYMid meet" role="img"
         aria-label="Axonometric model of the layout">
-        <polygon points={ptsStr(floor)} fill={shade(FLOOR, 1)} stroke="rgba(26,24,19,0.18)" strokeWidth={0.4} />
+        <defs>
+          <linearGradient id="axon-floor" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={shade(FLOOR, 0.9)} />
+            <stop offset="1" stopColor={shade(FLOOR, 1.05)} />
+          </linearGradient>
+        </defs>
+        <polygon points={ptsStr(floor)} fill="url(#axon-floor)" stroke="rgba(26,24,19,0.18)" strokeWidth={0.4} />
         {zones.map((z, i) => (
           <polygon key={`z${i}`} points={ptsStr(z.pts)} fill={z.fill} />
         ))}
