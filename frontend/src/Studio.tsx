@@ -18,6 +18,7 @@ import {
   iterateDetailed,
   num,
   type Bom,
+  type SymbolGeometry,
 } from "./api";
 import Dropzone from "./components/Dropzone";
 import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
@@ -301,42 +302,47 @@ export default function Studio() {
   };
 
   // Piece swap — replace the selected item with a catalog product, keeping its centre + rotation.
-  async function applyPieceSwap(p: Product) {
+  // Applies INSTANTLY (footprint) so it feels real-time, then upgrades to the SKU's real plan shape
+  // when the model library responds — both target the item by index so the second update lands.
+  function applyPieceSwap(p: Product) {
     if (!layout || !swapFurniture) return;
     const key = furnitureKey(swapFurniture);
-    const cur = layout.furniture.find((f) => furnitureKey(f) === key);
-    if (!cur) return;
+    const idx = layout.furniture.findIndex((f) => furnitureKey(f) === key);
+    if (idx < 0) return;
+    const cur = layout.furniture[idx];
     const cx = cur.x + cur.w / 2;
     const cy = cur.y + cur.h / 2;
 
-    // Pull the SKU's real plan shape from the product-model library; fall back to its footprint.
-    let outline: [number, number][][] | undefined;
-    let w = p.w;
-    let h = p.h;
-    try {
-      const geo = await fetchGeometry(p.model);
-      if (geo.outline?.length) {
-        outline = placeOutline(geo.outline, cx, cy);
-        w = geo.w;
-        h = geo.h;
-      }
-    } catch {
-      /* no model geometry — footprint box */
-    }
-
-    const furniture = layout.furniture.map((f) =>
-      furnitureKey(f) !== key
-        ? f
-        : { ...f, brand: p.brand, model: p.model, list_price: p.list_price ?? null,
-            w, h, x: cx - w / 2, y: cy - h / 2, outline },
-    );
-    setLayout({ ...layout, furniture });
+    const at = (f: ExtractedFurniture, w: number, h: number, outline?: [number, number][][]) => ({
+      ...f, brand: p.brand, model: p.model, list_price: p.list_price ?? null,
+      w, h, x: cx - w / 2, y: cy - h / 2, outline,
+    });
+    setLayout({
+      ...layout,
+      furniture: layout.furniture.map((f, i) => (i === idx ? at(f, p.w, p.h) : f)),
+    });
     dismissSwap();
+
+    // Upgrade to real geometry in the background; ignore if the slot was swapped again meanwhile.
+    fetchGeometry(p.model)
+      .then((geo) => {
+        if (!geo.outline?.length) return;
+        setLayout((prev) => {
+          if (!prev || prev.furniture[idx]?.model !== p.model) return prev;
+          const out = placeOutline(geo.outline, cx, cy);
+          return {
+            ...prev,
+            furniture: prev.furniture.map((f, i) => (i === idx ? at(f, geo.w, geo.h, out) : f)),
+          };
+        });
+      })
+      .catch(() => {/* keep the footprint box */});
   }
 
   // Room swap — drop a setting's furniture into the room (anchored to its bbox min-corner),
-  // replacing every piece whose centre currently falls inside the room.
-  function applyRoomSwap(s: CatalogSetting) {
+  // replacing every piece whose centre currently falls inside the room. Each placed piece gets its
+  // SKU's real plan shape from the product-model library (footprint box when it doesn't resolve).
+  async function applyRoomSwap(s: CatalogSetting) {
     if (!layout || !swapRoom) return;
     const poly = swapRoom.polygon;
     const minx = Math.min(...poly.map((p) => p[0]));
@@ -344,21 +350,39 @@ export default function Studio() {
     const kept = layout.furniture.filter(
       (f) => !pointInPolygon(f.x + f.w / 2, f.y + f.h / 2, poly),
     );
+
+    // Fetch each DISTINCT SKU's geometry once (5 identical chairs = 1 request); failures fall back.
+    const skus = [...new Set(s.furniture.map((sf) => sf.model).filter(Boolean))];
+    const geoms = new Map<string, SymbolGeometry>();
+    await Promise.all(
+      skus.map(async (sku) => {
+        try {
+          const g = await fetchGeometry(sku);
+          if (g.outline?.length) geoms.set(sku, g);
+        } catch {
+          /* no model geometry — footprint box */
+        }
+      }),
+    );
+
     const placed: ExtractedFurniture[] = s.furniture.map((sf) => {
-      const x = minx + sf.dx;
-      const y = miny + sf.dy;
+      const geo = sf.model ? geoms.get(sf.model) : undefined;
+      const w = geo ? geo.w : sf.w;
+      const h = geo ? geo.h : sf.h;
+      const cx = minx + sf.dx + sf.w / 2;
+      const cy = miny + sf.dy + sf.h / 2;
       return {
         category: sf.category,
         block_name: "",
         brand: sf.brand,
         model: sf.model,
         list_price: sf.list_price ?? null,
-        x,
-        y,
-        w: sf.w,
-        h: sf.h,
+        x: cx - w / 2,
+        y: cy - h / 2,
+        w,
+        h,
         rotation: sf.rotation,
-        outline: placeOutline(sf.outline, x + sf.w / 2, y + sf.h / 2),
+        outline: geo ? placeOutline(geo.outline, cx, cy) : undefined,
       };
     });
     const furniture = [...kept, ...placed];
@@ -573,6 +597,20 @@ export default function Studio() {
                     title={`Swap · ${swapFurniture.category}`}
                     busy={swapBusy}
                     empty={!!swapProducts && swapProducts.length === 0}
+                    preview={
+                      <>
+                        <ShapeThumb
+                          outline={swapFurniture.outline}
+                          w={swapFurniture.w}
+                          h={swapFurniture.h}
+                        />
+                        <span className="swap-current">
+                          {swapFurniture.model
+                            ? `${swapFurniture.brand} ${swapFurniture.model}`
+                            : "Selected piece"}
+                        </span>
+                      </>
+                    }
                     onDismiss={dismissSwap}
                   >
                     {swapProducts?.map((p, i) => (
@@ -980,16 +1018,52 @@ const settingLabel = (t: string) =>
 
 // Swap chooser — keyboard-accessible (focusable buttons, Enter applies, Esc/Done dismisses),
 // tokens only, mirroring the side-panel section + export-btn list styling.
+// A small true-shape preview of the selected piece — its real outline, or its footprint as a fallback.
+function ShapeThumb({ outline, w, h }: { outline?: [number, number][][]; w: number; h: number }) {
+  const S = 54;
+  const pad = 6;
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  if (outline?.length) {
+    for (const ring of outline)
+      for (const [x, y] of ring) {
+        minx = Math.min(minx, x); maxx = Math.max(maxx, x);
+        miny = Math.min(miny, y); maxy = Math.max(maxy, y);
+      }
+  } else {
+    minx = 0; miny = 0; maxx = w; maxy = h;
+  }
+  const bw = Math.max(maxx - minx, 0.1);
+  const bh = Math.max(maxy - miny, 0.1);
+  const k = Math.min((S - pad * 2) / bw, (S - pad * 2) / bh);
+  const ox = (S - bw * k) / 2 - minx * k;
+  const oy = (S - bh * k) / 2 - miny * k;
+  const tx = (x: number) => x * k + ox;
+  const ty = (y: number) => S - (y * k + oy); // y-flip so the thumbnail reads like the plan
+  return (
+    <svg className="swap-thumb" width={S} height={S} viewBox={`0 0 ${S} ${S}`} aria-hidden="true">
+      {outline?.length ? (
+        outline.map((ring, i) => (
+          <polyline key={i} points={ring.map(([x, y]) => `${tx(x)},${ty(y)}`).join(" ")} />
+        ))
+      ) : (
+        <rect x={tx(minx)} y={ty(maxy)} width={bw * k} height={bh * k} />
+      )}
+    </svg>
+  );
+}
+
 function SwapPanel({
   title,
   busy,
   empty,
+  preview,
   onDismiss,
   children,
 }: {
   title: string;
   busy: boolean;
   empty: boolean;
+  preview?: ReactNode;
   onDismiss: () => void;
   children: ReactNode;
 }) {
@@ -1008,6 +1082,7 @@ function SwapPanel({
           Done
         </button>
       </div>
+      {preview && <div className="swap-preview">{preview}</div>}
       {busy ? (
         <p className="disclaim">Finding alternatives…</p>
       ) : empty ? (

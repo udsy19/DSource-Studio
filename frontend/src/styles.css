@@ -107,17 +107,21 @@ header.bar {
 .plan-viewport .room-label .room-area { font-family: var(--serif); font-weight: 400;
   font-size: 1.8px; fill: var(--accent); }
 
+/* the accent stroke IS the selection indicator (for mouse AND keyboard), so suppress the browser's
+   default focus ring entirely — on some browsers it paints a blue box over the whole <g>. */
+.layout-room, .layout-furn { cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }
+.layout-room:focus, .layout-furn:focus, .layout-room:focus-visible, .layout-furn:focus-visible { outline: none; }
+/* never let a stray drag paint a blue text-selection over the drawing */
+.stage, .plan-viewport, .plan-viewport * { user-select: none; -webkit-user-select: none; }
+.plan-viewport ::selection { background: transparent; }
+
 /* hover/focus room highlight — extracted-layout rooms shift to the accent */
-.layout-room { cursor: pointer; }
-.layout-room:focus-visible { outline: none; }
 .layout-room:hover .room-shape,
 .layout-room:focus-visible .room-shape,
 .layout-room.is-selected .room-shape { fill: var(--accent-soft); stroke: var(--accent); }
 
 /* swap selection — a real-SKU furniture item shifts its linework (and fill, where it has one)
    to the accent on hover / focus / when picked for a swap */
-.layout-furn { cursor: pointer; }
-.layout-furn:focus-visible { outline: none; }
 .layout-furn:is(:hover, :focus-visible, .is-selected)
   :is(rect, circle, path, line, polyline, polygon) { stroke: var(--accent); }
 .layout-furn.is-selected polygon { fill: var(--accent-soft); }
@@ -435,6 +439,13 @@ header.bar {
 .swap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .swap-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
 .swap-list .export-btn { background: var(--paper); }
+/* preview of the currently-selected piece — its true plan shape + name */
+.swap-preview { display: flex; align-items: center; gap: 11px; padding: 8px 4px 2px; }
+.swap-thumb { flex: none; background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--r1); }
+.swap-thumb polyline, .swap-thumb rect { fill: none; stroke: var(--ink); stroke-width: 0.9;
+  stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.swap-current { font: var(--t-small); font-weight: 600; color: var(--ink); letter-spacing: 0.01em; }
 
 /* export · deliverables */
 .exports .export-actions { display: flex; flex-direction: column; gap: 9px; }
