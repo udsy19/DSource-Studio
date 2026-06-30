@@ -17,7 +17,7 @@ type RGB = [number, number, number];
 const PAPER = "#f4f1ea";
 const FLOOR: RGB = [232, 225, 211];
 const WALL: RGB = [225, 217, 201];
-const FURN_SEAT: RGB = [203, 181, 152]; // seating reads a touch warmer
+const FURN_SEAT: RGB = [201, 169, 139]; // seating leans ~12% toward the terracotta accent
 const FURN_SURF: RGB = [217, 204, 180]; // tables / desks / casework
 const INK = "#1a1813";
 const EDGE = "rgba(26,24,19,0.32)";
@@ -28,6 +28,7 @@ const WALL_H = 8.5; // ft — perimeter
 const PARTITION_H = 4.5; // ft — interior room walls, low (dollhouse) so furniture stays visible
 const GLASS_H = 6.5; // ft — meeting-room glazing, a bit taller
 const DESK_H = 2.5; // ft — a generated workstation desk
+const DOOR_W = 3.3; // ft — clear doorway opening
 const HEIGHTS: Record<string, number> = {
   chair: 2.9, stool: 2.7, desk: 2.5, table: 2.5, workstation: 3.4, sofa: 2.7,
   storage: 4.2, panel: 5.2, mullion: 8.5, tv: 4.4, planter: 2.6, other: 2.5,
@@ -126,11 +127,27 @@ function placedOutline(g: SymbolGeometry, cx: number, cy: number, rotDeg: number
   );
 }
 
+// a door symbol on the floor: quarter-circle swing (closed tip → open tip) hinged at `hinge`,
+// radius `g`, swept from the in-edge direction `d` toward the into-room normal `n`, then the
+// leaf line back to the hinge. One ink polyline at z=0; the caller spins + projects it.
+function swingPath(hinge: Pt, d: Pt, n: Pt, g: number): Pt[] {
+  const STEPS = 10;
+  const path: Pt[] = [];
+  for (let s = 0; s <= STEPS; s++) {
+    const phi = (Math.PI / 2) * (s / STEPS);
+    const c = Math.cos(phi);
+    const si = Math.sin(phi);
+    path.push([hinge[0] + g * (d[0] * c + n[0] * si), hinge[1] + g * (d[1] * c + n[1] * si)]);
+  }
+  path.push(hinge); // leaf: open tip → hinge
+  return path;
+}
+
 // ── scene assembly ──
 type Item = { foot: Pt[]; z1: number; base: RGB; detail?: Pt[][] };
 type Wall = { a: Pt; b: Pt; h: number; glass?: boolean; cut?: boolean };
 type Zone = { poly: Pt[]; tint: RGB };
-type Scene = { floor: Pt[]; zones: Zone[]; walls: Wall[]; items: Item[]; center: Pt };
+type Scene = { floor: Pt[]; zones: Zone[]; walls: Wall[]; items: Item[]; doors: Pt[][]; center: Pt };
 
 function sceneFromLayout(layout: ExtractedLayout): Scene {
   const [minx, miny, maxx, maxy] = layout.bounds;
@@ -163,7 +180,15 @@ function sceneFromLayout(layout: ExtractedLayout): Scene {
       };
     });
 
-  return { floor, zones, walls, items, center };
+  // CAD walls already carry the opening; add a swing arc + leaf so each door reads as enterable
+  const doors: Pt[][] = (layout.doors ?? []).map((dr) => {
+    const a = (dr.rotation * Math.PI) / 180;
+    const d: Pt = [Math.cos(a), Math.sin(a)];
+    const n: Pt = [-d[1], d[0]];
+    return swingPath([dr.x, dr.y], d, n, dr.width);
+  });
+
+  return { floor, zones, walls, items, doors, center };
 }
 
 const ENCLOSED = new Set(["private_office", "meeting_room", "collaboration"]);
@@ -179,6 +204,7 @@ function sceneFromPlan(plan: Plan, instances: Instance[], geo: Geo): Scene {
 
   const zones: Zone[] = [];
   const items: Item[] = [];
+  const doors: Pt[][] = [];
   for (const i of instances) {
     if (i.slotted) {
       // use the SKU's real plan silhouette once fetched, else a per-category footprint
@@ -197,8 +223,45 @@ function sceneFromPlan(plan: Plan, instances: Instance[], geo: Geo): Scene {
     const corners = rectCorners(i.x, i.y, i.w, i.h, i.rotation);
     if (ENCLOSED.has(i.type)) {
       const glass = i.type === "meeting_room" || i.type === "private_office"; // modern glass fronts
-      for (let k = 0; k < corners.length; k++)
-        walls.push({ a: corners[k], b: corners[(k + 1) % corners.length], h: glass ? GLASS_H : PARTITION_H, glass });
+      const wallH = glass ? GLASS_H : PARTITION_H;
+      const roomCenter: Pt = [i.x + i.w / 2, i.y + i.h / 2];
+      // the doorway is the edge whose midpoint sits nearest the plan centre — the most-visible,
+      // interior-facing side
+      let door = 0;
+      let bestD = Infinity;
+      for (let k = 0; k < corners.length; k++) {
+        const a = corners[k];
+        const b = corners[(k + 1) % corners.length];
+        const dd = ((a[0] + b[0]) / 2 - center[0]) ** 2 + ((a[1] + b[1]) / 2 - center[1]) ** 2;
+        if (dd < bestD) {
+          bestD = dd;
+          door = k;
+        }
+      }
+      for (let k = 0; k < corners.length; k++) {
+        const a = corners[k];
+        const b = corners[(k + 1) % corners.length];
+        if (k !== door) {
+          walls.push({ a, b, h: wallH, glass });
+          continue;
+        }
+        // leave a centred gap; emit the two flanking wall segments and a swing into the room
+        const ex = b[0] - a[0];
+        const ey = b[1] - a[1];
+        const len = Math.hypot(ex, ey) || 1;
+        const d: Pt = [ex / len, ey / len];
+        let n: Pt = [-d[1], d[0]];
+        if ((roomCenter[0] - (a[0] + b[0]) / 2) * n[0] + (roomCenter[1] - (a[1] + b[1]) / 2) * n[1] < 0)
+          n = [-n[0], -n[1]];
+        const g = Math.min(DOOR_W, len * 0.8);
+        const mx = (a[0] + b[0]) / 2;
+        const my = (a[1] + b[1]) / 2;
+        const h1: Pt = [mx - d[0] * (g / 2), my - d[1] * (g / 2)];
+        const h2: Pt = [mx + d[0] * (g / 2), my + d[1] * (g / 2)];
+        walls.push({ a, b: h1, h: wallH, glass });
+        walls.push({ a: h2, b, h: wallH, glass });
+        doors.push(swingPath(h1, d, n, g));
+      }
       const tint = zoneTint(i.type);
       if (tint) zones.push({ poly: corners, tint });
     } else {
@@ -206,7 +269,7 @@ function sceneFromPlan(plan: Plan, instances: Instance[], geo: Geo): Scene {
     }
   }
 
-  return { floor: plan.boundary as Pt[], zones, walls, items, center };
+  return { floor: plan.boundary as Pt[], zones, walls, items, doors, center };
 }
 
 // ── projection + shading into paint-ready faces ──
@@ -262,7 +325,8 @@ function buildFaces(scene: Scene, q: number) {
   faces.sort((a, b) => a.depth - b.depth || a.order - b.order);
   const floor = scene.floor.map((p) => iso(...(spin(p, center, q) as Pt), 0));
   const zones = scene.zones.map((z) => ({ pts: z.poly.map((p) => iso(...(spin(p, center, q) as Pt), 0)), fill: shade(z.tint, 1) }));
-  return { faces, floor, zones, shadows };
+  const floorLines = scene.doors.map((poly) => poly.map((p) => iso(...(spin(p, center, q) as Pt), 0)));
+  return { faces, floor, zones, shadows, floorLines };
 }
 
 const ptsStr = (pts: Pt[]) => pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
@@ -302,7 +366,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances, geo)),
     [props, geo],
   );
-  const { faces, floor, zones, shadows } = useMemo(() => buildFaces(scene, q), [scene, q]);
+  const { faces, floor, zones, shadows, floorLines } = useMemo(() => buildFaces(scene, q), [scene, q]);
 
   const all = [floor, ...faces.map((f) => f.pts)].flat();
   const xs = all.map((p) => p[0]);
@@ -353,6 +417,10 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
         ))}
         {shadows.map((s, i) => (
           <polygon key={`sh${i}`} points={ptsStr(s)} fill="rgba(26,24,19,0.10)" />
+        ))}
+        {floorLines.map((line, i) => (
+          <polyline key={`d${i}`} points={ptsStr(line)} fill="none" stroke={INK} strokeWidth={0.3}
+            strokeLinejoin="round" strokeLinecap="round" opacity={0.5} />
         ))}
         {faces.map((f, i) => (
           <g key={i}>
