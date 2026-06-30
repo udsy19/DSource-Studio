@@ -58,6 +58,8 @@ def sku_demand(fit: TestFit) -> dict[str, int]:
     """Aggregate raw {sku: qty} demand across all placed instances."""
     demand: dict[str, int] = {}
     for inst in fit.instances:
+        if inst.slotted:  # real Steelcase furniture — priced via the layout BOM, not this catalog
+            continue
         for sku, qty in instance_skus(inst):
             if qty <= 0:
                 continue
