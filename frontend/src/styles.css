@@ -187,10 +187,14 @@ header.bar {
   background: var(--paper-veil); backdrop-filter: blur(6px);
   border: 1px solid var(--line); border-radius: var(--r-pill);
 }
-.axon-hint { font: var(--t-small); color: var(--muted); letter-spacing: 0.04em; }
-.axon-tools .link-btn { font-size: 15px; line-height: 1; }
+.axon-hint { font: var(--t-small); color: var(--muted); letter-spacing: 0.08em; min-width: 24px; text-align: center; }
+.axon-rot { width: 30px; height: 30px; border: 1px solid var(--line-2); background: var(--paper);
+  border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; color: var(--ink);
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.axon-rot:hover { border-color: var(--accent); color: var(--accent); }
+.axon-rot:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 .axon-render { border: none; background: var(--accent); color: var(--paper); cursor: pointer;
-  font: 500 12px/1 var(--sans); padding: 7px 14px; border-radius: var(--r-pill); }
+  font: 500 12px/1 var(--sans); padding: 9px 16px; border-radius: var(--r-pill); margin-left: 4px; }
 .axon-render:hover { filter: brightness(1.05); }
 
 .render-overlay { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
@@ -257,6 +261,7 @@ header.bar {
 }
 
 .drop {
+  display: block;
   border: 1px dashed var(--line-2); border-radius: 3px;
   padding: 26px 18px; text-align: center; cursor: pointer;
   color: var(--muted); transition: border-color 0.25s, color 0.25s, background 0.25s;
@@ -265,6 +270,8 @@ header.bar {
 .drop .lead { font-family: var(--serif); font-size: 18px; font-weight: 400; color: var(--ink); display: block; margin-bottom: 5px; }
 .drop small { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
 .drop.busy { opacity: 0.7; cursor: progress; }
+/* the real file input — visually hidden but present, so the wrapping <label> opens it natively */
+.sr-file { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; opacity: 0; }
 
 .err { color: var(--accent); font-size: 12.5px; line-height: 1.5; border-left: 2px solid var(--accent); padding-left: 12px; }
 

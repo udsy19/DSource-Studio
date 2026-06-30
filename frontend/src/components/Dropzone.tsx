@@ -1,18 +1,18 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 interface Props {
   busy: boolean;
   onFile: (f: File) => void;
 }
 
+// A native <label> wraps the file input, so a click opens the OS file dialog with NO programmatic
+// .click() — the bulletproof pattern that works across every browser. Drag-and-drop is also handled.
 export default function Dropzone({ busy, onFile }: Props) {
-  const ref = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
 
   return (
-    <div
+    <label
       className={`drop ${over ? "over" : ""} ${busy ? "busy" : ""}`}
-      onClick={() => !busy && ref.current?.click()}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -28,15 +28,16 @@ export default function Dropzone({ busy, onFile }: Props) {
       <span className="lead">{busy ? "Reading the plate…" : "Drop a floor plate"}</span>
       <small>.dxf / .dwg · or click to browse</small>
       <input
-        ref={ref}
         type="file"
         accept=".dxf,.dwg"
-        hidden
+        className="sr-file"
+        disabled={busy}
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) onFile(f);
+          e.target.value = ""; // allow re-selecting the same file
         }}
       />
-    </div>
+    </label>
   );
 }

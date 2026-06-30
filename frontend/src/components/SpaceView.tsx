@@ -245,9 +245,9 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
       </svg>
 
       <div className="axon-tools">
-        <span className="axon-hint">Paper model · {["NE", "SE", "SW", "NW"][((q % 4) + 4) % 4]}</span>
-        <button type="button" className="link-btn" onClick={() => setQ((v) => v - 1)} aria-label="Rotate left">⟲</button>
-        <button type="button" className="link-btn" onClick={() => setQ((v) => v + 1)} aria-label="Rotate right">⟳</button>
+        <button type="button" className="axon-rot" onClick={() => setQ((v) => v - 1)} aria-label="Rotate left">⟲</button>
+        <span className="axon-hint">{["NE", "SE", "SW", "NW"][((q % 4) + 4) % 4]}</span>
+        <button type="button" className="axon-rot" onClick={() => setQ((v) => v + 1)} aria-label="Rotate right">⟳</button>
         <button type="button" className="axon-render" onClick={handleRender}>Render</button>
       </div>
 
