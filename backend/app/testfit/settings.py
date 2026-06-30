@@ -319,9 +319,10 @@ def save_settings(settings: list[Setting], path: Path | None = None) -> Path:
     return target
 
 
-def load_settings(path: Path | None = None) -> list[Setting]:
-    """Read the built library, or [] when it's absent — so the engine degrades to parametric."""
-    source = path or _settings_path()
+_settings_cache: list[Setting] | None = None
+
+
+def _read_settings(source: Path) -> list[Setting]:
     if not source.exists():
         return []
     return [
@@ -332,3 +333,17 @@ def load_settings(path: Path | None = None) -> list[Setting]:
         )
         for s in json.loads(source.read_text())
     ]
+
+
+def load_settings(path: Path | None = None) -> list[Setting]:
+    """Read the built library, or [] when it's absent — so the engine degrades to parametric.
+
+    The default-path read is cached process-wide (the library is built offline + read-only at
+    runtime), so each generate/iterate doesn't re-read and re-parse settings.json from disk. An
+    explicit `path` (tests) bypasses the cache."""
+    global _settings_cache
+    if path is not None:
+        return _read_settings(path)
+    if _settings_cache is None:
+        _settings_cache = _read_settings(_settings_path())
+    return _settings_cache
