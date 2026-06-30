@@ -168,34 +168,20 @@ def _parse_price(raw: str) -> float | None:
 # Real plan geometry: flatten an INSERT into world-coord polylines (recursing nested blocks a few
 # levels), so a piece can render as its true shape. Bounded so a heavy block can't bloat the layout.
 def _item_outline(ins, lf: float, max_polys: int = 48, max_pts: int = 400) -> list[list[tuple[float, float]]]:
+    # Reuse the faithful flattener (handles LINE/LWPOLYLINE/POLYLINE/ARC/CIRCLE/ELLIPSE/SPLINE +
+    # nested INSERTs) so curved furniture — round tables, arc-backed chairs, circular stools — keeps
+    # its real outline instead of being dropped to a box.
+    from ..floorplan.cad_geometry import _entity_paths
+
     polys: list[list[tuple[float, float]]] = []
     total = 0
-
-    def walk(entity, depth: int) -> None:
-        nonlocal total
+    for pts, _layer, _closed in _entity_paths(ins):
         if len(polys) >= max_polys or total >= max_pts:
-            return
-        try:
-            ents = list(entity.virtual_entities())
-        except Exception:  # noqa: BLE001 - a degenerate block yields no geometry; skip it
-            return
-        for e in ents:
-            if len(polys) >= max_polys or total >= max_pts:
-                return
-            t = e.dxftype()
-            if t == "INSERT" and depth < 3:
-                walk(e, depth + 1)
-            elif t == "LWPOLYLINE":
-                pts = [(round(p[0] * lf, 2), round(p[1] * lf, 2)) for p in e.get_points("xy")]
-                if len(pts) >= 2:
-                    polys.append(pts)
-                    total += len(pts)
-            elif t == "LINE":
-                s, en = e.dxf.start, e.dxf.end
-                polys.append([(round(s.x * lf, 2), round(s.y * lf, 2)), (round(en.x * lf, 2), round(en.y * lf, 2))])
-                total += 2
-
-    walk(ins, 0)
+            break
+        ring = [(round(x * lf, 2), round(y * lf, 2)) for (x, y) in pts]
+        if len(ring) >= 2:
+            polys.append(ring)
+            total += len(ring)
     return polys
 
 
