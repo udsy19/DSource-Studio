@@ -155,6 +155,12 @@ const DEFAULT_DETAILED: DetailedProgram = {
 };
 
 // ── swap geometry ──
+// Recognized furniture a room swap places — mirrors the backend _SLOT_CATS so Read-mode swaps and
+// the generator agree on what a room contains (the rest are CET sub-component blocks / glass).
+const SLOT_CATS = new Set<string>([
+  "chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter",
+]);
+
 // Map a read room's type/label onto the setting catalog's type vocabulary.
 function settingTypeForRoom(room: ExtractedRoom): string {
   const s = `${room.type} ${room.label}`.toLowerCase();
@@ -351,8 +357,13 @@ export default function Studio() {
       (f) => !pointInPolygon(f.x + f.w / 2, f.y + f.h / 2, poly),
     );
 
+    // Only real furniture — drop the un-spec'd CET sub-component blocks (chair bases/brackets) and
+    // glass panels/mullions, exactly as the backend slot_settings does, so a room swap doesn't
+    // reintroduce the overlapping tangle.
+    const pieces = s.furniture.filter((sf) => SLOT_CATS.has(sf.category));
+
     // Fetch each DISTINCT SKU's geometry once (5 identical chairs = 1 request); failures fall back.
-    const skus = [...new Set(s.furniture.map((sf) => sf.model).filter(Boolean))];
+    const skus = [...new Set(pieces.map((sf) => sf.model).filter(Boolean))];
     const geoms = new Map<string, SymbolGeometry>();
     await Promise.all(
       skus.map(async (sku) => {
@@ -365,7 +376,7 @@ export default function Studio() {
       }),
     );
 
-    const placed: ExtractedFurniture[] = s.furniture.map((sf) => {
+    const placed: ExtractedFurniture[] = pieces.map((sf) => {
       const geo = sf.model ? geoms.get(sf.model) : undefined;
       const w = geo ? geo.w : sf.w;
       const h = geo ? geo.h : sf.h;
