@@ -30,6 +30,8 @@ def _instance_payload(i: FurnitureInstance) -> dict:
         d["model"] = i.model
     if i.list_price is not None:
         d["list_price"] = i.list_price
+    if i.slotted:
+        d["slotted"] = True
     return d
 
 
@@ -76,6 +78,7 @@ def fit_from_payload(d: dict) -> TestFit:
                 w=float(i["w"]), h=float(i["h"]), rotation=int(i.get("rotation", 0)),
                 brand=i.get("brand"), model=i.get("model"),
                 list_price=float(i["list_price"]) if i.get("list_price") is not None else None,
+                slotted=bool(i.get("slotted", False)),
             )
             for i in d.get("instances", [])
         ],

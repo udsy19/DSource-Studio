@@ -99,6 +99,9 @@ class FurnitureInstance:
     brand: str | None = None
     model: str | None = None
     list_price: float | None = None
+    # True for furniture dropped INSIDE a room by slot_settings — distinguishes a real "workstation"
+    # product from a structural workstation slot, which share a type string.
+    slotted: bool = False
 
 
 @dataclass
@@ -319,7 +322,7 @@ def slot_settings(
             FurnitureInstance(
                 type=f.category, x=round(inst.x + f.dx, 2), y=round(inst.y + f.dy, 2),
                 w=f.w, h=f.h, rotation=int(round(f.rotation)),
-                brand=f.brand, model=f.model, list_price=f.list_price,
+                brand=f.brand, model=f.model, list_price=f.list_price, slotted=True,
             )
             for f in setting.furniture
         ]

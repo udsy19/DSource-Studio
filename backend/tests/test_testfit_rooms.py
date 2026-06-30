@@ -54,7 +54,10 @@ def test_all_instances_geometrically_valid_and_non_overlapping():
     cores = [Polygon(c) for c in plan.cores]
     columns = [Point(c).buffer(spec.column_clearance_ft) for c in plan.columns]
 
-    rects = [box(i.x, i.y, i.x + i.w, i.y + i.h) for i in fit.instances]
+    # The structural rooms tile the plan; slotted Steelcase furniture lives INSIDE the room boxes
+    # (overlapping them by design), so it's excluded from the tiling/non-overlap invariant.
+    rooms = [i for i in fit.instances if not i.slotted]
+    rects = [box(i.x, i.y, i.x + i.w, i.y + i.h) for i in rooms]
     assert len(rects) == (fit.workstation_count + fit.office_count
                           + fit.meeting_count + fit.collab_count)
 

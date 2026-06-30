@@ -13,6 +13,7 @@ degrades to the parametric path with no library present).
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 from collections import Counter
@@ -193,15 +194,17 @@ def products_for(products: list[Product], category: str) -> list[Product]:
 
 
 def _settings_dir() -> Path:
-    """Directory holding the application DWGs (organized in type subfolders) + the built
-    settings.json. $STEELCASE_DIR overrides; otherwise prefer the repo-root `steelcase/` library,
-    falling back to data/steelcase."""
+    """Directory holding the application plans (in type subfolders) + the built settings.json.
+    $STEELCASE_DIR overrides; otherwise prefer the converted `steelcase-dxf/` library (read directly,
+    no ODA conversion needed), then the raw `steelcase/` DWGs, then data/steelcase."""
     env = os.environ.get("STEELCASE_DIR")
     if env:
         return Path(env)
     root = Path(__file__).resolve().parents[3]
-    library = root / "steelcase"
-    return library if library.exists() else root / "data" / "steelcase"
+    for candidate in (root / "steelcase-dxf", root / "steelcase", root / "data" / "steelcase"):
+        if candidate.exists():
+            return candidate
+    return root / "data" / "steelcase"
 
 
 def _settings_path() -> Path:
@@ -211,7 +214,9 @@ def _settings_path() -> Path:
 # ── per-SKU real geometry ──────────────────────────────────────────────────
 # The Steelcase product-model library (one DXF per SKU under 3d-models-cad/<Category>/<SKU>.dxf)
 # lets a slotted/swapped piece render its TRUE plan shape instead of a footprint box.
+_MIN_BASE = 6  # shortest shared prefix we'll accept as the same product family
 _symbol_paths: dict[str, Path] | None = None
+_symbol_keys: list[str] | None = None
 
 
 def _models_dir() -> Path:
@@ -229,10 +234,35 @@ def _symbol_index() -> dict[str, Path]:
     return _symbol_paths
 
 
+def _resolve_symbol(sku: str) -> Path | None:
+    """Find a product model for a SKU. A configured CET part number (e.g. 419A000) often isn't an
+    exact file name but extends or trims the base symbolCode in the library (419A000B2 / COTO96).
+    Resolve, in order: exact; a base symbol that is a prefix of the SKU; the shortest indexed variant
+    that extends the SKU. Require >= _MIN_BASE shared chars so unrelated products never match."""
+    global _symbol_keys
+    idx = _symbol_index()
+    if sku in idx:
+        return idx[sku]
+    if len(sku) < _MIN_BASE:
+        return None
+    for n in range(len(sku) - 1, _MIN_BASE - 1, -1):  # trim trailing option chars -> base symbol
+        if sku[:n] in idx:
+            return idx[sku[:n]]
+    if _symbol_keys is None:
+        _symbol_keys = sorted(idx.keys())
+    i = bisect.bisect_left(_symbol_keys, sku)  # closest indexed variant that extends the SKU
+    best = None
+    while i < len(_symbol_keys) and _symbol_keys[i].startswith(sku):
+        if best is None or len(_symbol_keys[i]) < len(best):
+            best = _symbol_keys[i]
+        i += 1
+    return idx[best] if best else None
+
+
 def symbol_outline(sku: str, max_polys: int = 120) -> dict | None:
     """Real plan outline (polylines in feet, re-based to the shape's min-corner) + size for one SKU,
     or None when the SKU has no product model. Reuses the faithful DXF flattener."""
-    path = _symbol_index().get(sku)
+    path = _resolve_symbol(sku)
     if path is None:
         return None
     from ..floorplan.cad_geometry import extract_geometry
@@ -246,22 +276,33 @@ def symbol_outline(sku: str, max_polys: int = 120) -> dict | None:
     return {"outline": outline, "w": round(b["maxx"] - minx, 2), "h": round(b["maxy"] - miny, 2)}
 
 
+def _application_files(directory: Path) -> list[tuple[Path, str | None]]:
+    """The application-plan files to ingest, paired with their folder-derived type. Walks the type
+    subfolders (skipping the 3d-models-cad product library — tens of thousands of per-SKU files that
+    are geometry, not plans) plus any loose top-level files (flat dir -> type inferred)."""
+    files: list[tuple[Path, str | None]] = []
+    for entry in sorted(directory.iterdir()):
+        if entry.is_dir():
+            if entry.name == "3d-models-cad":
+                continue
+            stype = _folder_type(entry.name)
+            files += [(p, stype) for p in sorted(entry.glob("*")) if p.suffix.lower() in (".dwg", ".dxf")]
+        elif entry.suffix.lower() in (".dwg", ".dxf"):
+            files.append((entry, None))
+    return files
+
+
 def build_library(steelcase_dir: Path | None = None) -> list[Setting]:
-    """Ingest every application DWG/DXF under the directory (recursing the type subfolders) into
-    Settings, taking each setting_type from its Steelcase folder when recognized (else inferring).
-    Skips files with no furniture. Offline-only — `read_cad` is imported lazily so the runtime path
-    never pulls the CAD stack."""
+    """Ingest every application plan in the library into Settings, taking each setting_type from its
+    Steelcase folder when recognized (else inferring). Skips files with no furniture; one bad file
+    never aborts the build. Offline-only — `read_cad` is imported lazily so the runtime never pulls
+    the CAD stack. Outline is off: footprint is enough for slotting/swap (real geometry comes per-SKU
+    from the model library), and per-item outlines for the whole library would bloat settings.json."""
     from ..ingestion.cad_reader import read_cad
 
-    directory = steelcase_dir or _settings_dir()
     settings: list[Setting] = []
-    for path in sorted(directory.rglob("*")):
-        if path.suffix.lower() not in (".dwg", ".dxf"):
-            continue
-        stype = _folder_type(path.parent.name)
+    for path, stype in _application_files(steelcase_dir or _settings_dir()):
         try:
-            # outline off: footprint is enough for slotting/swap, and per-item outlines for the whole
-            # library would bloat settings.json to hundreds of MB.
             layout = read_cad(path.read_bytes(), path.name, extract_outline=False)
         except Exception:  # noqa: BLE001 - one bad file shouldn't abort the whole library build
             continue

@@ -141,9 +141,11 @@ def test_locked_room_footprint_blocks_overlap():
                   pinned[0]["x"] + pinned[0]["w"], pinned[0]["y"] + pinned[0]["h"])
 
     iterated = generate_from_detailed(plan, program, locked=pinned)["alternatives"][0]
+    # Structural rooms only — slotted furniture lives inside room boxes (incl. the pinned one).
     others = [
         i for i in iterated["testfit"]["instances"]
-        if not (abs(i["x"] - pinned[0]["x"]) < 1e-6 and abs(i["y"] - pinned[0]["y"]) < 1e-6)
+        if not i.get("slotted")
+        and not (abs(i["x"] - pinned[0]["x"]) < 1e-6 and abs(i["y"] - pinned[0]["y"]) < 1e-6)
     ]
     for i in others:
         ib = box(i["x"], i["y"], i["x"] + i["w"], i["y"] + i["h"])

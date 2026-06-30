@@ -183,3 +183,25 @@ def test_symbol_outline_missing_sku_is_none():
     from app.testfit.settings import symbol_outline
 
     assert symbol_outline("__no_such_sku__") is None
+
+
+def test_resolve_symbol_matches_base_and_variant(monkeypatch):
+    """A configured CET part number resolves to the base symbol (trailing options trimmed) or to a
+    variant that extends it — but never to an unrelated product (>= 6 shared chars required)."""
+    from pathlib import Path
+
+    from app.testfit import settings as S
+
+    idx = {
+        "COTO96": Path("coto96.dxf"),       # base symbol
+        "419A000B2": Path("419.dxf"),       # configured variant in the library
+        "COWK1": Path("cowk1.dxf"),         # too-short base (5 chars)
+    }
+    monkeypatch.setattr(S, "_symbol_paths", idx)
+    monkeypatch.setattr(S, "_symbol_keys", None)
+
+    assert S._resolve_symbol("COTO96") == idx["COTO96"]          # exact
+    assert S._resolve_symbol("COTO96WB15") == idx["COTO96"]      # part extends base -> base
+    assert S._resolve_symbol("419A000") == idx["419A000B2"]      # library variant extends the part
+    assert S._resolve_symbol("COWK100") is None                  # COWK1 too short -> no risky match
+    assert S._resolve_symbol("UNRELATED9") is None

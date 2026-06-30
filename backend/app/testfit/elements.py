@@ -21,6 +21,8 @@ def _meeting_seats(inst: FurnitureInstance) -> int:
 def extract_elements(plan: PlanModel, fit: TestFit) -> dict:
     chairs = desks = tables = sofas = ottomans = 0
     for inst in fit.instances:
+        if inst.slotted:  # real furniture inside a room — its own SKU lines, not a structural count
+            continue
         if inst.type == "workstation":
             desks += 1
             chairs += 1
