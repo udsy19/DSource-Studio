@@ -303,3 +303,12 @@ export const inr = (n: number, frac = 0) =>
   n.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: frac });
 
 export const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+// Currency-aware money formatter — honours the BOM's `currency` field (Steelcase list prices are
+// USD; the India track will emit INR) instead of a hardcoded '$'.
+export const money = (n: number, currency = "USD") =>
+  new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(n);

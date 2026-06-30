@@ -16,6 +16,7 @@ import {
   generateFromConcept,
   ingestCad,
   iterateDetailed,
+  money,
   num,
   type Bom,
   type SymbolGeometry,
@@ -712,12 +713,12 @@ export default function Studio() {
                             <span className="bom-name">
                               {l.qty}× {l.brand} {l.model}
                             </span>
-                            <span className="bom-amt">${num(Math.round(l.line_total))}</span>
+                            <span className="bom-amt">{money(l.line_total, bom.currency)}</span>
                           </div>
                         ))}
                         <div className="bom-line bom-total">
                           <span className="bom-name">Total · {bom.priced_items} priced</span>
-                          <span className="bom-amt">${num(Math.round(bom.total))}</span>
+                          <span className="bom-amt">{money(bom.total, bom.currency)}</span>
                         </div>
                       </div>
                       <p className="disclaim" style={{ marginTop: 10 }}>
@@ -1017,10 +1018,10 @@ function ElCount({ n, k }: { n: number; k: string }) {
 // A $0 list price means "no standalone price" (CET sub-component), never free — show it as unpriced.
 function priceMeta(price?: number | null, current?: number | null): string {
   if (!price || price <= 0) return "—";
-  const base = `$${num(price)}`;
+  const base = money(price); // Steelcase catalog is USD
   if (!current || current <= 0 || current === price) return base;
   const d = price - current;
-  return `${base} · ${d > 0 ? "+" : "−"}$${num(Math.abs(d))}`;
+  return `${base} · ${d > 0 ? "+" : "−"}${money(Math.abs(d))}`;
 }
 
 // "private_office" → "Private Office"
