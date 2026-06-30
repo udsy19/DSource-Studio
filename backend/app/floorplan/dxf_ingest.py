@@ -18,7 +18,6 @@ polyline exists we fall back to the drawing extents (a coarse gross envelope) an
 
 from __future__ import annotations
 
-import io
 from dataclasses import dataclass, field
 
 import ezdxf
@@ -261,15 +260,11 @@ def _read_dxf_doc(dxf: bytes):
 
 
 def ingest_dxf(source: bytes | str) -> PlanModel:
-    # Use ezdxf.recover — it auto-detects encoding and tolerates the binary/encoded sections
-    # and structure quirks real-world CAD exports contain. Decoding bytes as UTF-8 by hand
-    # corrupts such files; recover.read() reads from a binary stream correctly.
-    import ezdxf.recover
-
-    if isinstance(source, bytes):
-        doc, _auditor = ezdxf.recover.read(io.BytesIO(source))
-    else:
-        doc, _auditor = ezdxf.recover.readfile(source)
+    # Share the robust reader (tries strict readfile + recover, keeps the fuller modelspace) so the
+    # same Steelcase/CET exports read_cad ingests correctly also work through this path — recover
+    # alone silently drops some of them to an empty modelspace.
+    data = source if isinstance(source, bytes) else open(source, "rb").read()
+    doc = _read_dxf_doc(data)
     msp = doc.modelspace()
 
     insunits = int(doc.header.get("$INSUNITS", 0) or 0)

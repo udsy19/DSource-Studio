@@ -9,13 +9,9 @@ viewer (extrude walls tall, furniture/other low). Block INSERTs are exploded via
 
 from __future__ import annotations
 
-import io
-
-import ezdxf
-import ezdxf.recover
 from ezdxf import path as ezpath
 
-from .dxf_ingest import _INSUNITS_TO_FEET, _UNIT_NAME, _dwg_to_dxf_bytes
+from .dxf_ingest import _INSUNITS_TO_FEET, _UNIT_NAME, _dwg_to_dxf_bytes, _read_dxf_doc
 
 # entity types we flatten directly; INSERT is exploded; TEXT/DIMENSION/HATCH are skipped
 _DRAW_TYPES = {"LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE"}
@@ -48,10 +44,8 @@ def _entity_paths(e, depth: int = 0) -> list[tuple]:
 def extract_geometry(content: bytes, filename: str, max_paths: int = 14000) -> dict:
     if (filename or "").lower().endswith(".dwg"):
         content = _dwg_to_dxf_bytes(content)
-    if isinstance(content, bytes):
-        doc, _ = ezdxf.recover.read(io.BytesIO(content))
-    else:
-        doc, _ = ezdxf.recover.readfile(content)
+    data = content if isinstance(content, bytes) else open(content, "rb").read()
+    doc = _read_dxf_doc(data)
     msp = doc.modelspace()
 
     insunits = int(doc.header.get("$INSUNITS", 0) or 0)
