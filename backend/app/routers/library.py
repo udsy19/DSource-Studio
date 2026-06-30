@@ -11,7 +11,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Query
 
 from ..testfit.settings import (
-    Product,
+    LibraryProduct,
     Setting,
     build_products,
     load_settings,
@@ -24,10 +24,10 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 
 # Built offline + read-only at runtime, so load once per process.
 _settings: list[Setting] | None = None
-_products: list[Product] | None = None
+_products: list[LibraryProduct] | None = None
 
 
-def _catalog() -> tuple[list[Setting], list[Product]]:
+def _catalog() -> tuple[list[Setting], list[LibraryProduct]]:
     global _settings, _products
     if _settings is None:
         _settings = load_settings()

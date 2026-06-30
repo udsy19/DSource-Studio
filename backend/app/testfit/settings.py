@@ -140,7 +140,7 @@ def build_setting(layout: ExtractedLayout, setting_id: str, setting_type: str | 
 
 
 @dataclass
-class Product:
+class LibraryProduct:
     """One unique furniture SKU across the library — a swap alternative for a piece of that category."""
 
     category: str
@@ -152,11 +152,11 @@ class Product:
     outline: list[list[tuple[float, float]]] = field(default_factory=list)
 
 
-def build_products(settings: list[Setting]) -> list[Product]:
+def build_products(settings: list[Setting]) -> list[LibraryProduct]:
     """Distinct REAL furniture SKUs across all settings — the pool of item-swap alternatives, each
     with a representative size + geometry. Only spec'd items (a model/SKU) are products; un-spec'd
     CET sub-parts (category 'other', no model) are construction geometry, not swappable furniture."""
-    seen: dict[tuple, Product] = {}
+    seen: dict[tuple, LibraryProduct] = {}
     for s in settings:
         for f in s.furniture:
             if not f.model:  # no SKU -> a sub-part, not a catalog product
@@ -166,7 +166,7 @@ def build_products(settings: list[Setting]) -> list[Product]:
                 # a $0 CET spec means "no standalone price", not free — normalize to None so it reads
                 # as unpriced everywhere (never fabricate a price).
                 price = f.list_price if (f.list_price or 0) > 0 else None
-                seen[key] = Product(
+                seen[key] = LibraryProduct(
                     category=f.category, brand=f.brand, model=f.model, list_price=price,
                     w=f.w, h=f.h, outline=f.outline,
                 )
@@ -184,7 +184,7 @@ def settings_for(settings: list[Setting], setting_type: str, max_w: float, max_h
     return sorted(fit, key=lambda s: s.sqft, reverse=True)
 
 
-def products_for(products: list[Product], category: str) -> list[Product]:
+def products_for(products: list[LibraryProduct], category: str) -> list[LibraryProduct]:
     """Item-swap alternatives for a category — substantial priced pieces first, unpriced last (so
     nominal $1 CET placeholders don't lead the list)."""
     return sorted(
