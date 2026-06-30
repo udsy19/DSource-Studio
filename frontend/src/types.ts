@@ -12,7 +12,9 @@ export interface Instance {
   h: number;
   rotation: number;
   slotted?: boolean; // real furniture dropped inside a room (vs a structural room/desk slot)
+  brand?: string | null;
   model?: string | null; // SKU of a slotted piece — used to fetch its real 3D silhouette
+  list_price?: number | null;
 }
 
 export interface Plan {

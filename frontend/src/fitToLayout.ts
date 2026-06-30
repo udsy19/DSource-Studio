@@ -202,8 +202,22 @@ export function layoutFromFit(plan: Plan, instances: Instance[]): ExtractedLayou
   const doors: ExtractedDoor[] = [];
   const inventory: Record<string, number> = {};
 
+  // When the Steelcase library slotted real furniture into the rooms, those pieces ARE the
+  // furniture — adopt them as-is and skip the synthetic representative items.
+  const hasSlotted = instances.some((it) => it.slotted);
+
   let roomN = 0;
   for (const it of instances) {
+    if (it.slotted) {
+      const category = it.type as FurnitureCategory; // slotted type is the furniture category
+      furniture.push({
+        category, block_name: "", brand: it.brand ?? "", model: it.model ?? "",
+        list_price: it.list_price ?? null,
+        x: it.x, y: it.y, w: it.w, h: it.h, rotation: it.rotation,
+      });
+      inventory[category] = (inventory[category] ?? 0) + 1;
+      continue;
+    }
     if (it.type === "workstation") {
       furniture.push({
         category: "workstation", block_name: "", brand: "", model: "",
@@ -224,9 +238,11 @@ export function layoutFromFit(plan: Plan, instances: Instance[]): ExtractedLayou
       type: meta.type,
     });
 
-    for (const spec of FURNITURE_BY_TYPE[it.type] ?? []) {
-      furniture.push(itemInRoom(it, spec));
-      inventory[spec.category] = (inventory[spec.category] ?? 0) + 1;
+    if (!hasSlotted) {
+      for (const spec of FURNITURE_BY_TYPE[it.type] ?? []) {
+        furniture.push(itemInRoom(it, spec));
+        inventory[spec.category] = (inventory[spec.category] ?? 0) + 1;
+      }
     }
     doors.push(doorForRoom(it, centroid));
   }
