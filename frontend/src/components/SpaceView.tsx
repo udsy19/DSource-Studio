@@ -1,31 +1,46 @@
 import { useMemo, useRef, useState } from "react";
 
 import { renderView } from "../api";
-import type { ExtractedLayout, Instance, Plan } from "../types";
+import type { ExtractedLayout, ExtractedRoom, Instance, Plan } from "../types";
 
 /* Axonometric "paper model" — a pure-SVG 2.5D view. No WebGL, so it can never lose its context or
-   fail to compile; it renders instantly and reads like the ink-on-paper 2D plan. Walls and furniture
-   are extruded into an isometric projection with directional shading + contact shadows, painted
-   back-to-front. Each furniture piece is extruded from its REAL plan silhouette, not a box. */
+   fail to compile; it renders instantly and reads like the ink-on-paper 2D plan. Walls + furniture
+   are extruded into an isometric projection with directional shading, contact shadows, glass on
+   meeting rooms, faint zone tints, and a near-wall cutaway, painted back-to-front. */
 
 type Pt = [number, number];
 type RGB = [number, number, number];
 
-// ── warm paper/ink palette (single terracotta accent kept for the UI, not the model) ──
+// ── warm paper/ink palette ──
 const PAPER = "#f4f1ea";
 const FLOOR: RGB = [232, 225, 211];
 const WALL: RGB = [225, 217, 201];
-const FURN: RGB = [214, 201, 176];
+const FURN_SEAT: RGB = [203, 181, 152]; // seating reads a touch warmer
+const FURN_SURF: RGB = [217, 204, 180]; // tables / desks / casework
 const INK = "#1a1813";
-const EDGE = "rgba(26,24,19,0.35)";
+const EDGE = "rgba(26,24,19,0.32)";
+const GLASS = "rgba(150,171,186,0.34)"; // meeting-room glazing
+const GLASS_EDGE = "rgba(120,140,158,0.7)";
 
 const WALL_H = 8.5; // ft — perimeter
-const PARTITION_H = 4.5; // ft — interior room walls, kept low (dollhouse) so furniture stays visible
+const PARTITION_H = 4.5; // ft — interior room walls, low (dollhouse) so furniture stays visible
+const GLASS_H = 6.5; // ft — meeting-room glazing, a bit taller
 const DESK_H = 2.5; // ft — a generated workstation desk
 const HEIGHTS: Record<string, number> = {
   chair: 2.9, stool: 2.7, desk: 2.5, table: 2.5, workstation: 3.4, sofa: 2.7,
   storage: 4.2, panel: 5.2, mullion: 8.5, tv: 4.4, planter: 2.6, other: 2.5,
 };
+const SEATING = new Set(["chair", "stool", "sofa"]);
+const furnTone = (cat?: string): RGB => (cat && SEATING.has(cat) ? FURN_SEAT : FURN_SURF);
+
+// faint floor tint per zone, keyed by a loose type match (null = no tint)
+function zoneTint(type: string): RGB | null {
+  const t = type.toLowerCase();
+  if (/meet|conf|board|huddle/.test(t)) return [226, 223, 216];
+  if (/office|cabin|exec|focus/.test(t)) return [235, 229, 217];
+  if (/collab|lounge|cafe|break/.test(t)) return [237, 228, 212];
+  return null;
+}
 
 const ISO = Math.PI / 6;
 const COS = Math.cos(ISO);
@@ -48,14 +63,33 @@ function spin(p: Pt, c: Pt, q: number): Pt {
 }
 
 function rectCorners(x: number, y: number, w: number, h: number, rotDeg: number): Pt[] {
+  return placeShape([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], x, y, w, h, rotDeg);
+}
+
+// a per-category footprint (chairs/stools rounded, sofas softly chamfered, surfaces rectangular)
+function shapeFoot(cat: string, x: number, y: number, w: number, h: number, rotDeg: number): Pt[] {
+  const r = cat === "chair" || cat === "stool" ? 0.34 : cat === "sofa" || cat === "planter" ? 0.18 : 0;
+  if (r === 0) return rectCorners(x, y, w, h, rotDeg);
+  const c = r; // chamfer as a fraction of the half-extent
+  const local: Pt[] = [
+    [-0.5 + c, -0.5], [0.5 - c, -0.5], [0.5, -0.5 + c], [0.5, 0.5 - c],
+    [0.5 - c, 0.5], [-0.5 + c, 0.5], [-0.5, 0.5 - c], [-0.5, -0.5 + c],
+  ];
+  return placeShape(local, x, y, w, h, rotDeg);
+}
+
+// map unit-square-centred local points to world, scaled to w×h, rotated, anchored at (x,y) min-corner
+function placeShape(local: Pt[], x: number, y: number, w: number, h: number, rotDeg: number): Pt[] {
   const cx = x + w / 2;
   const cy = y + h / 2;
   const a = (rotDeg * Math.PI) / 180;
   const ca = Math.cos(a);
   const sa = Math.sin(a);
-  return ([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]] as Pt[]).map(
-    ([dx, dy]) => [cx + dx * ca - dy * sa, cy + dx * sa + dy * ca] as Pt,
-  );
+  return local.map(([lx, ly]) => {
+    const dx = lx * w;
+    const dy = ly * h;
+    return [cx + dx * ca - dy * sa, cy + dx * sa + dy * ca] as Pt;
+  });
 }
 
 const area = (ring: Pt[]) => {
@@ -71,14 +105,15 @@ function silhouette(outline: Pt[][]): { foot: Pt[]; detail: Pt[][] } | null {
   if (!rings.length) return null;
   let best = rings[0];
   for (const r of rings) if (area(r) > area(best)) best = r;
-  if (area(best) < 0.2) return null; // too thin to read as a footprint
+  if (area(best) < 0.2) return null;
   return { foot: best, detail: rings.filter((r) => r !== best) };
 }
 
 // ── scene assembly ──
 type Item = { foot: Pt[]; z1: number; base: RGB; detail?: Pt[][] };
-type Wall = { a: Pt; b: Pt; h: number };
-type Scene = { floor: Pt[]; walls: Wall[]; items: Item[]; center: Pt };
+type Wall = { a: Pt; b: Pt; h: number; glass?: boolean; cut?: boolean };
+type Zone = { poly: Pt[]; tint: RGB };
+type Scene = { floor: Pt[]; zones: Zone[]; walls: Wall[]; items: Item[]; center: Pt };
 
 function sceneFromLayout(layout: ExtractedLayout): Scene {
   const [minx, miny, maxx, maxy] = layout.bounds;
@@ -86,25 +121,32 @@ function sceneFromLayout(layout: ExtractedLayout): Scene {
   const floor: Pt[] = [[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy]];
 
   const walls = layout.walls.flatMap((w) => {
+    const peri = w.type === "perimeter" || w.type === "core";
+    const glass = w.type === "glass";
+    const h = peri ? WALL_H : glass ? GLASS_H : PARTITION_H;
     const segs: Wall[] = [];
-    const h = w.type === "perimeter" || w.type === "core" ? WALL_H : PARTITION_H;
-    for (let i = 0; i + 1 < w.points.length; i++) segs.push({ a: w.points[i], b: w.points[i + 1], h });
+    for (let i = 0; i + 1 < w.points.length; i++)
+      segs.push({ a: w.points[i], b: w.points[i + 1], h, glass, cut: peri });
     return segs;
   });
 
+  const zones: Zone[] = (layout.rooms ?? [])
+    .map((r: ExtractedRoom) => ({ poly: r.polygon as Pt[], tint: zoneTint(r.type) }))
+    .filter((z): z is Zone => z.tint !== null && z.poly.length >= 3);
+
   const items: Item[] = layout.furniture
-    .filter((f) => f.category !== "mullion")
+    .filter((f) => f.category !== "mullion" && f.category !== "panel")
     .map((f) => {
       const sil = f.outline?.length ? silhouette(f.outline as Pt[][]) : null;
       return {
-        foot: sil ? sil.foot : rectCorners(f.x, f.y, f.w, f.h, f.rotation),
+        foot: sil ? sil.foot : shapeFoot(f.category, f.x, f.y, f.w, f.h, f.rotation),
         z1: HEIGHTS[f.category] ?? HEIGHTS.other,
-        base: FURN,
+        base: furnTone(f.category),
         detail: sil?.detail.length ? sil.detail : undefined,
       };
     });
 
-  return { floor, walls, items, center };
+  return { floor, zones, walls, items, center };
 }
 
 const ENCLOSED = new Set(["private_office", "meeting_room", "collaboration"]);
@@ -116,34 +158,39 @@ function sceneFromPlan(plan: Plan, instances: Instance[]): Scene {
 
   const walls: Wall[] = [];
   for (let i = 0; i < plan.boundary.length; i++)
-    walls.push({ a: plan.boundary[i] as Pt, b: plan.boundary[(i + 1) % plan.boundary.length] as Pt, h: WALL_H });
+    walls.push({ a: plan.boundary[i] as Pt, b: plan.boundary[(i + 1) % plan.boundary.length] as Pt, h: WALL_H, cut: true });
 
+  const zones: Zone[] = [];
   const items: Item[] = [];
   for (const i of instances) {
-    const corners = rectCorners(i.x, i.y, i.w, i.h, i.rotation);
     if (i.slotted) {
-      items.push({ foot: corners, z1: HEIGHTS[i.type] ?? HEIGHTS.other, base: FURN }); // real furniture
-    } else if (ENCLOSED.has(i.type)) {
-      // an enclosed room: extrude its four edges as low partition walls so you see the furniture in it
+      items.push({ foot: shapeFoot(i.type, i.x, i.y, i.w, i.h, i.rotation), z1: HEIGHTS[i.type] ?? HEIGHTS.other, base: furnTone(i.type) });
+      continue;
+    }
+    const corners = rectCorners(i.x, i.y, i.w, i.h, i.rotation);
+    if (ENCLOSED.has(i.type)) {
+      const glass = i.type === "meeting_room";
       for (let k = 0; k < corners.length; k++)
-        walls.push({ a: corners[k], b: corners[(k + 1) % corners.length], h: PARTITION_H });
+        walls.push({ a: corners[k], b: corners[(k + 1) % corners.length], h: glass ? GLASS_H : PARTITION_H, glass });
+      const tint = zoneTint(i.type);
+      if (tint) zones.push({ poly: corners, tint });
     } else {
-      items.push({ foot: corners, z1: DESK_H, base: FURN }); // a workstation desk
+      items.push({ foot: corners, z1: DESK_H, base: FURN_SURF }); // a workstation desk
     }
   }
 
-  return { floor: plan.boundary as Pt[], walls, items, center };
+  return { floor: plan.boundary as Pt[], zones, walls, items, center };
 }
 
 // ── projection + shading into paint-ready faces ──
-type Face = { pts: Pt[]; fill: string; stroke?: string; depth: number; order: number; lines?: Pt[][] };
+type Face = { pts: Pt[]; fill: string; stroke?: string; depth: number; order: number; lines?: Pt[][]; glass?: boolean };
 
 function buildFaces(scene: Scene, q: number) {
   const { center } = scene;
   const faces: Face[] = [];
   const shadows: Pt[][] = [];
+  const centerDepth = center[0] + center[1];
 
-  // outward-normal shade factor for a vertical side face spanning world edge a→b
   const sideShade = (a: Pt, b: Pt) => {
     let n: Pt = [b[1] - a[1], -(b[0] - a[0])];
     const m = Math.hypot(n[0], n[1]) || 1;
@@ -151,23 +198,25 @@ function buildFaces(scene: Scene, q: number) {
     return 0.82 + 0.16 * Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1]);
   };
 
-  for (const { a, b, h } of scene.walls) {
-    const sa = spin(a, center, q);
-    const sb = spin(b, center, q);
+  for (const w of scene.walls) {
+    const sa = spin(w.a, center, q);
+    const sb = spin(w.b, center, q);
+    // cutaway: drop the tall perimeter walls on the near (viewer-facing) side so you see the floor
+    if (w.cut && (sa[0] + sa[1] + sb[0] + sb[1]) / 2 > centerDepth + 0.5) continue;
     faces.push({
-      pts: [iso(sa[0], sa[1], 0), iso(sb[0], sb[1], 0), iso(sb[0], sb[1], h), iso(sa[0], sa[1], h)],
-      fill: shade(WALL, sideShade(sa, sb)),
+      pts: [iso(sa[0], sa[1], 0), iso(sb[0], sb[1], 0), iso(sb[0], sb[1], w.h), iso(sa[0], sa[1], w.h)],
+      fill: w.glass ? GLASS : shade(WALL, sideShade(sa, sb)),
+      stroke: w.glass ? GLASS_EDGE : undefined,
       depth: depthOf([sa, sb]),
       order: 0,
+      glass: w.glass,
     });
   }
 
   for (const it of scene.items) {
     const spun = it.foot.map((p) => spin(p, center, q));
     const d = depthOf(spun);
-    // contact shadow: footprint dropped to the floor, nudged toward the light's far side
     shadows.push(spun.map((p) => iso(p[0] + 0.5, p[1] + 0.5, 0)));
-    // side faces (only the two facing the viewer read), shaded by direction
     const sides = spun.map((p, i) => {
       const nx = spun[(i + 1) % spun.length];
       return {
@@ -185,7 +234,8 @@ function buildFaces(scene: Scene, q: number) {
 
   faces.sort((a, b) => a.depth - b.depth || a.order - b.order);
   const floor = scene.floor.map((p) => iso(...(spin(p, center, q) as Pt), 0));
-  return { faces, floor, shadows };
+  const zones = scene.zones.map((z) => ({ pts: z.poly.map((p) => iso(...(spin(p, center, q) as Pt), 0)), fill: shade(z.tint, 1) }));
+  return { faces, floor, zones, shadows };
 }
 
 const ptsStr = (pts: Pt[]) => pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
@@ -199,7 +249,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances)),
     [props],
   );
-  const { faces, floor, shadows } = useMemo(() => buildFaces(scene, q), [scene, q]);
+  const { faces, floor, zones, shadows } = useMemo(() => buildFaces(scene, q), [scene, q]);
 
   const all = [floor, ...faces.map((f) => f.pts)].flat();
   const xs = all.map((p) => p[0]);
@@ -239,13 +289,16 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
       <svg ref={svgRef} className="axon-svg" viewBox={vb} preserveAspectRatio="xMidYMid meet" role="img"
         aria-label="Axonometric model of the layout">
         <polygon points={ptsStr(floor)} fill={shade(FLOOR, 1)} stroke="rgba(26,24,19,0.18)" strokeWidth={0.4} />
+        {zones.map((z, i) => (
+          <polygon key={`z${i}`} points={ptsStr(z.pts)} fill={z.fill} />
+        ))}
         {shadows.map((s, i) => (
           <polygon key={`sh${i}`} points={ptsStr(s)} fill="rgba(26,24,19,0.10)" />
         ))}
         {faces.map((f, i) => (
           <g key={i}>
             <polygon points={ptsStr(f.pts)} fill={f.fill} stroke={f.stroke ?? "none"}
-              strokeWidth={0.35} strokeLinejoin="round" />
+              strokeWidth={f.glass ? 0.5 : 0.35} strokeLinejoin="round" />
             {f.lines?.map((ring, j) => (
               <polyline key={j} points={ptsStr(ring)} fill="none" stroke={INK} strokeWidth={0.3}
                 strokeLinejoin="round" opacity={0.45} />
