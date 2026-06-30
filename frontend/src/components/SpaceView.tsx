@@ -3,52 +3,52 @@ import { useMemo, useRef, useState } from "react";
 import { renderView } from "../api";
 import type { ExtractedLayout, Instance, Plan } from "../types";
 
-/* Axonometric "paper model" — a pure-SVG 2.5D view of the plan. No WebGL, so it can never lose its
-   context or fail to compile; it renders instantly and reads like the ink-on-paper 2D plan. Walls
-   and furniture are extruded into an isometric projection and painted back-to-front. */
+/* Axonometric "paper model" — a pure-SVG 2.5D view. No WebGL, so it can never lose its context or
+   fail to compile; it renders instantly and reads like the ink-on-paper 2D plan. Walls and furniture
+   are extruded into an isometric projection with directional shading + contact shadows, painted
+   back-to-front. Each furniture piece is extruded from its REAL plan silhouette, not a box. */
 
 type Pt = [number, number];
+type RGB = [number, number, number];
 
-// ── palette (paper + ink, single terracotta accent) ──
+// ── warm paper/ink palette (single terracotta accent kept for the UI, not the model) ──
 const PAPER = "#f4f1ea";
-const FLOOR_TOP = "#e9e3d6";
-const WALL_SIDE = "#d8d2c4";
-const WALL_SIDE_DK = "#cbc4b2";
-const FURN_TOP = "#efe7d8";
-const FURN_SIDE = "#d8cdb8";
+const FLOOR: RGB = [232, 225, 211];
+const WALL: RGB = [225, 217, 201];
+const FURN: RGB = [214, 201, 176];
+const ROOM_RGB: Record<string, RGB> = {
+  workstation: [223, 214, 195], private_office: [219, 209, 188],
+  meeting_room: [222, 211, 188], collaboration: [228, 218, 198],
+};
 const INK = "#1a1813";
-const LINE = "#cdc6b6";
-const ACCENT = "#b8552f";
+const EDGE = "rgba(26,24,19,0.35)";
 
-const WALL_H = 9; // ft
+const WALL_H = 8.5; // ft
 const HEIGHTS: Record<string, number> = {
-  chair: 2.8, stool: 2.6, desk: 2.4, table: 2.4, workstation: 3.2, sofa: 2.6,
-  storage: 4, panel: 5, mullion: 9, tv: 4.2, planter: 2.4, other: 2.4,
-  // generated-fit room types render as low platforms
-  private_office: 0.4, meeting_room: 0.4, collaboration: 0.4,
-};
-const ROOM_TONES: Record<string, string> = {
-  workstation: "#e7e0d1", private_office: "#e3dcc9", meeting_room: "#e6ddc8",
-  collaboration: "#ece3d0",
+  chair: 2.9, stool: 2.7, desk: 2.5, table: 2.5, workstation: 3.4, sofa: 2.7,
+  storage: 4.2, panel: 5.2, mullion: 8.5, tv: 4.4, planter: 2.6, other: 2.5,
+  private_office: 0.5, meeting_room: 0.5, collaboration: 0.5,
 };
 
-const ISO = Math.PI / 6; // 30° — classic 2:1 isometric
+const ISO = Math.PI / 6;
 const COS = Math.cos(ISO);
 const SIN = Math.sin(ISO);
+const LIGHT = ((): Pt => {
+  const v: Pt = [-0.55, -0.8];
+  const m = Math.hypot(v[0], v[1]);
+  return [v[0] / m, v[1] / m];
+})();
 
-// One extruded thing to draw: a footprint polygon raised from z0 to z1, plus optional ink linework
-// drawn on its top face (the real furniture outline).
-type Prism = { poly: Pt[]; z1: number; top: string; side: string; topLines?: Pt[][] };
+const iso = (x: number, y: number, z: number): Pt => [(x - y) * COS, (x + y) * SIN - z];
+const depthOf = (poly: Pt[]) => poly.reduce((s, [x, y]) => s + x + y, 0) / poly.length;
+const shade = ([r, g, b]: RGB, f: number) =>
+  `rgb(${Math.min(255, Math.round(r * f))},${Math.min(255, Math.round(g * f))},${Math.min(255, Math.round(b * f))})`;
 
-// Rotate a world point a quarter-turn `q` times about the plan centre — gives the 4 viewing angles.
 function spin(p: Pt, c: Pt, q: number): Pt {
   let [x, y] = [p[0] - c[0], p[1] - c[1]];
   for (let i = 0; i < ((q % 4) + 4) % 4; i++) [x, y] = [-y, x];
   return [x + c[0], y + c[1]];
 }
-
-const iso = (x: number, y: number, z: number): Pt => [(x - y) * COS, (x + y) * SIN - z];
-const depthOf = (poly: Pt[]) => poly.reduce((s, [x, y]) => s + x + y, 0) / poly.length;
 
 function rectCorners(x: number, y: number, w: number, h: number, rotDeg: number): Pt[] {
   const cx = x + w / 2;
@@ -61,8 +61,26 @@ function rectCorners(x: number, y: number, w: number, h: number, rotDeg: number)
   );
 }
 
+const area = (ring: Pt[]) => {
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+    a += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+  return Math.abs(a / 2);
+};
+
+// the real plan silhouette to extrude (largest-area ring), plus the finer rings to ink on top
+function silhouette(outline: Pt[][]): { foot: Pt[]; detail: Pt[][] } | null {
+  const rings = outline.filter((r) => r.length >= 3);
+  if (!rings.length) return null;
+  let best = rings[0];
+  for (const r of rings) if (area(r) > area(best)) best = r;
+  if (area(best) < 0.2) return null; // too thin to read as a footprint
+  return { foot: best, detail: rings.filter((r) => r !== best) };
+}
+
 // ── scene assembly ──
-type Scene = { floor: Pt[]; walls: { a: Pt; b: Pt }[]; prisms: Prism[]; center: Pt };
+type Item = { foot: Pt[]; z1: number; base: RGB; detail?: Pt[][] };
+type Scene = { floor: Pt[]; walls: { a: Pt; b: Pt }[]; items: Item[]; center: Pt };
 
 function sceneFromLayout(layout: ExtractedLayout): Scene {
   const [minx, miny, maxx, maxy] = layout.bounds;
@@ -75,85 +93,95 @@ function sceneFromLayout(layout: ExtractedLayout): Scene {
     return segs;
   });
 
-  const prisms: Prism[] = layout.furniture
+  const items: Item[] = layout.furniture
     .filter((f) => f.category !== "mullion")
-    .map((f) => ({
-      poly: rectCorners(f.x, f.y, f.w, f.h, f.rotation),
-      z1: HEIGHTS[f.category] ?? HEIGHTS.other,
-      top: FURN_TOP,
-      side: FURN_SIDE,
-      topLines: f.outline?.length ? f.outline : undefined,
-    }));
+    .map((f) => {
+      const sil = f.outline?.length ? silhouette(f.outline as Pt[][]) : null;
+      return {
+        foot: sil ? sil.foot : rectCorners(f.x, f.y, f.w, f.h, f.rotation),
+        z1: HEIGHTS[f.category] ?? HEIGHTS.other,
+        base: FURN,
+        detail: sil?.detail.length ? sil.detail : undefined,
+      };
+    });
 
-  return { floor, walls, prisms, center };
+  return { floor, walls, items, center };
 }
 
 function sceneFromPlan(plan: Plan, instances: Instance[]): Scene {
   const xs = plan.boundary.map((p) => p[0]);
   const ys = plan.boundary.map((p) => p[1]);
   const center: Pt = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
-  const floor = plan.boundary as Pt[];
-
   const walls: { a: Pt; b: Pt }[] = [];
-  for (let i = 0; i < plan.boundary.length; i++) {
+  for (let i = 0; i < plan.boundary.length; i++)
     walls.push({ a: plan.boundary[i] as Pt, b: plan.boundary[(i + 1) % plan.boundary.length] as Pt });
-  }
 
-  const prisms: Prism[] = instances.map((i) => ({
-    poly: rectCorners(i.x, i.y, i.w, i.h, i.rotation),
+  const items: Item[] = instances.map((i) => ({
+    foot: rectCorners(i.x, i.y, i.w, i.h, i.rotation),
     z1: HEIGHTS[i.type] ?? HEIGHTS.other,
-    top: ROOM_TONES[i.type] ?? FURN_TOP,
-    side: FURN_SIDE,
+    base: ROOM_RGB[i.type] ?? FURN,
   }));
 
-  return { floor, walls, prisms, center };
+  return { floor: plan.boundary as Pt[], walls, items, center };
 }
 
-// A flat, depth-sortable face ready to paint.
+// ── projection + shading into paint-ready faces ──
 type Face = { pts: Pt[]; fill: string; stroke?: string; depth: number; order: number; lines?: Pt[][] };
 
-function buildFaces(scene: Scene, q: number): { faces: Face[]; floor: Pt[] } {
+function buildFaces(scene: Scene, q: number) {
   const { center } = scene;
   const faces: Face[] = [];
+  const shadows: Pt[][] = [];
 
-  // walls — a thin vertical ribbon per segment
+  // outward-normal shade factor for a vertical side face spanning world edge a→b
+  const sideShade = (a: Pt, b: Pt) => {
+    let n: Pt = [b[1] - a[1], -(b[0] - a[0])];
+    const m = Math.hypot(n[0], n[1]) || 1;
+    n = [n[0] / m, n[1] / m];
+    return 0.82 + 0.16 * Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1]);
+  };
+
   for (const { a, b } of scene.walls) {
     const sa = spin(a, center, q);
     const sb = spin(b, center, q);
-    const quad: Pt[] = [
-      iso(sa[0], sa[1], 0), iso(sb[0], sb[1], 0), iso(sb[0], sb[1], WALL_H), iso(sa[0], sa[1], WALL_H),
-    ];
-    const near = (sa[0] + sa[1] + sb[0] + sb[1]) / 2 > center[0] + center[1];
-    faces.push({ pts: quad, fill: near ? WALL_SIDE : WALL_SIDE_DK, stroke: LINE, depth: depthOf([sa, sb]), order: 0 });
+    faces.push({
+      pts: [iso(sa[0], sa[1], 0), iso(sb[0], sb[1], 0), iso(sb[0], sb[1], WALL_H), iso(sa[0], sa[1], WALL_H)],
+      fill: shade(WALL, sideShade(sa, sb)),
+      depth: depthOf([sa, sb]),
+      order: 0,
+    });
   }
 
-  // furniture / room prisms — the two viewer-facing side faces, then the top (with its real outline)
-  for (const pr of scene.prisms) {
-    const spun = pr.poly.map((p) => spin(p, center, q));
+  for (const it of scene.items) {
+    const spun = it.foot.map((p) => spin(p, center, q));
     const d = depthOf(spun);
-    const sides = spun.map((a, i) => {
-      const b = spun[(i + 1) % spun.length];
+    // contact shadow: footprint dropped to the floor, nudged toward the light's far side
+    shadows.push(spun.map((p) => iso(p[0] + 0.5, p[1] + 0.5, 0)));
+    // side faces (only the two facing the viewer read), shaded by direction
+    const sides = spun.map((p, i) => {
+      const nx = spun[(i + 1) % spun.length];
       return {
-        pts: [iso(a[0], a[1], 0), iso(b[0], b[1], 0), iso(b[0], b[1], pr.z1), iso(a[0], a[1], pr.z1)] as Pt[],
-        depth: (a[0] + a[1] + b[0] + b[1]) / 2,
+        pts: [iso(p[0], p[1], 0), iso(nx[0], nx[1], 0), iso(nx[0], nx[1], it.z1), iso(p[0], p[1], it.z1)] as Pt[],
+        depth: (p[0] + p[1] + nx[0] + nx[1]) / 2,
+        fill: shade(it.base, sideShade(p, nx) - 0.06),
       };
     });
     sides.sort((x, y) => x.depth - y.depth);
-    for (const f of sides.slice(-2)) faces.push({ pts: f.pts, fill: pr.side, depth: d, order: 0 });
-    const topPts = spun.map((p) => iso(p[0], p[1], pr.z1));
-    const lines = pr.topLines?.map((ring) => ring.map((p) => iso(...(spin(p as Pt, center, q) as Pt), pr.z1)));
-    faces.push({ pts: topPts, fill: pr.top, stroke: LINE, depth: d, order: 1, lines });
+    for (const f of sides.slice(-2)) faces.push({ pts: f.pts, fill: f.fill, depth: d, order: 1 });
+    const top = spun.map((p) => iso(p[0], p[1], it.z1));
+    const lines = it.detail?.map((ring) => ring.map((p) => iso(...(spin(p, center, q) as Pt), it.z1)));
+    faces.push({ pts: top, fill: shade(it.base, 1.08), stroke: EDGE, depth: d, order: 2, lines });
   }
 
   faces.sort((a, b) => a.depth - b.depth || a.order - b.order);
   const floor = scene.floor.map((p) => iso(...(spin(p, center, q) as Pt), 0));
-  return { faces, floor };
+  return { faces, floor, shadows };
 }
 
 const ptsStr = (pts: Pt[]) => pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
 
 export default function SpaceView(props: { layout: ExtractedLayout } | { plan: Plan; instances: Instance[] }) {
-  const [q, setQ] = useState(0); // viewing quarter-turn
+  const [q, setQ] = useState(0);
   const [render, setRender] = useState<null | { busy: boolean; img: string | null; err: string | null }>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -161,13 +189,12 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances)),
     [props],
   );
-  const { faces, floor } = useMemo(() => buildFaces(scene, q), [scene, q]);
+  const { faces, floor, shadows } = useMemo(() => buildFaces(scene, q), [scene, q]);
 
-  // fit the projected drawing to a padded viewBox
   const all = [floor, ...faces.map((f) => f.pts)].flat();
   const xs = all.map((p) => p[0]);
   const ys = all.map((p) => p[1]);
-  const pad = 6;
+  const pad = 5;
   const vb = all.length
     ? `${Math.min(...xs) - pad} ${Math.min(...ys) - pad} ${Math.max(...xs) - Math.min(...xs) + pad * 2} ${Math.max(...ys) - Math.min(...ys) + pad * 2}`
     : "0 0 100 100";
@@ -201,14 +228,17 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     <div className="axon">
       <svg ref={svgRef} className="axon-svg" viewBox={vb} preserveAspectRatio="xMidYMid meet" role="img"
         aria-label="Axonometric model of the layout">
-        <polygon points={ptsStr(floor)} fill={FLOOR_TOP} stroke={LINE} strokeWidth={0.5} />
+        <polygon points={ptsStr(floor)} fill={shade(FLOOR, 1)} stroke="rgba(26,24,19,0.18)" strokeWidth={0.4} />
+        {shadows.map((s, i) => (
+          <polygon key={`sh${i}`} points={ptsStr(s)} fill="rgba(26,24,19,0.10)" />
+        ))}
         {faces.map((f, i) => (
           <g key={i}>
             <polygon points={ptsStr(f.pts)} fill={f.fill} stroke={f.stroke ?? "none"}
-              strokeWidth={0.4} strokeLinejoin="round" />
+              strokeWidth={0.35} strokeLinejoin="round" />
             {f.lines?.map((ring, j) => (
-              <polyline key={j} points={ptsStr(ring)} fill="none" stroke={INK} strokeWidth={0.4}
-                strokeLinejoin="round" opacity={0.65} />
+              <polyline key={j} points={ptsStr(ring)} fill="none" stroke={INK} strokeWidth={0.3}
+                strokeLinejoin="round" opacity={0.45} />
             ))}
           </g>
         ))}
@@ -225,7 +255,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
         <div className="render-overlay" onClick={() => setRender(null)}>
           <div className="render-card" onClick={(e) => e.stopPropagation()}>
             <div className="render-head">
-              <span style={{ color: ACCENT }} className="ds-eyebrow">
+              <span style={{ color: "#b8552f" }} className="ds-eyebrow">
                 {render.busy ? "Rendering…" : render.err ? "Render unavailable" : "Photoreal render"}
               </span>
               <button type="button" className="link-btn" onClick={() => setRender(null)}>Close</button>
