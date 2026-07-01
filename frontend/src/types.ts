@@ -170,6 +170,18 @@ export interface Metrics {
   efficiency_pct: number; // 0..1
 }
 
+// Live metrics for an edited ExtractedLayout (POST /api/layout/metrics) — re-scored as the user
+// moves, deletes or swaps pieces in the editor. Every field is derived from the geometry.
+export interface LayoutMetrics {
+  seats: number;
+  open_seats: number;
+  enclosed_seats: number;
+  usable_sf: number;
+  density_sf_per_person: number;
+  rooms: number;
+  rooms_by_type: Record<string, number>;
+}
+
 export interface Alternative {
   id: string;
   testfit: {

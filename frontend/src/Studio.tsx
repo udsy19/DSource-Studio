@@ -10,6 +10,7 @@ import {
   generateAlternatives,
   fetchGeometry,
   fetchLayoutBom,
+  fetchLayoutMetrics,
   fetchProducts,
   fetchSettings,
   generateDetailed,
@@ -35,6 +36,7 @@ import type {
   ExtractedLayout,
   ExtractedRoom,
   Instance,
+  LayoutMetrics,
   Metrics,
   Placement,
   Plan,
@@ -218,6 +220,7 @@ export default function Studio() {
 
   // Read-layout state (the existing flow).
   const [layout, setLayout] = useState<ExtractedLayout | null>(null);
+  const [layoutMetrics, setLayoutMetrics] = useState<LayoutMetrics | null>(null);
   const [file, setFile] = useState<File | null>(null);
   // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
   // the from-fit endpoints (those read the plan + testfit, which the synthesized layout discards).
@@ -294,6 +297,52 @@ export default function Studio() {
       live = false;
     };
   }, [swapRoom]);
+
+  // Live re-score: whenever the edited layout changes, ask the backend for seats/density/split so
+  // the editor's metrics strip reflects the current geometry. Stale responses are ignored.
+  useEffect(() => {
+    if (!layout) {
+      setLayoutMetrics(null);
+      return;
+    }
+    let live = true;
+    fetchLayoutMetrics(layout)
+      .then((m) => live && setLayoutMetrics(m))
+      .catch(() => live && setLayoutMetrics(null));
+    return () => {
+      live = false;
+    };
+  }, [layout]);
+
+  // Move a piece to a new bbox min-corner (feet). Re-derive its room_id from the new centre so the
+  // open/enclosed metric stays honest after the move.
+  const moveFurniture = (key: string, x: number, y: number) => {
+    setLayout((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        furniture: prev.furniture.map((f) => {
+          if (furnitureKey(f) !== key) return f;
+          const cx = x + f.w / 2;
+          const cy = y + f.h / 2;
+          const room = prev.rooms.find(
+            (r) => r.polygon.length >= 3 && pointInPolygon(cx, cy, r.polygon),
+          );
+          return { ...f, x, y, room_id: room ? room.id : null };
+        }),
+      };
+    });
+  };
+
+  // Delete a piece and recount the inventory so the elements grid + metrics stay in sync.
+  const deleteFurniture = (key: string) => {
+    setLayout((prev) => {
+      if (!prev) return prev;
+      const furniture = prev.furniture.filter((f) => furnitureKey(f) !== key);
+      return { ...prev, furniture, inventory: recountInventory(prev.inventory, furniture) };
+    });
+    setSwapFurniture(null);
+  };
 
   const selectFurniture = (f: ExtractedFurniture) => {
     setSwapRoom(null);
@@ -534,8 +583,11 @@ export default function Studio() {
                   onSelectFurniture={selectFurniture}
                   selectedRoomId={swapRoom?.id ?? null}
                   onSelectRoom={selectRoom}
+                  onMoveFurniture={moveFurniture}
+                  onDeleteFurniture={deleteFurniture}
                 />
               )}
+              {layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
             </>
           ) : (
             <div className="empty">
@@ -625,6 +677,14 @@ export default function Studio() {
                     }
                     onDismiss={dismissSwap}
                   >
+                    <button
+                      type="button"
+                      className="export-btn is-danger"
+                      onClick={() => deleteFurniture(furnitureKey(swapFurniture))}
+                    >
+                      <span className="export-btn-label">Remove this piece</span>
+                      <span className="export-btn-meta">delete · drag on plan to move</span>
+                    </button>
                     {swapProducts?.map((p, i) => (
                       <button
                         type="button"
@@ -1061,6 +1121,29 @@ function ShapeThumb({ outline, w, h }: { outline?: [number, number][][]; w: numb
         <rect x={tx(minx)} y={ty(maxy)} width={bw * k} height={bh * k} />
       )}
     </svg>
+  );
+}
+
+// Live metrics under the editable plan — seats, open/enclosed split, usable area, density. Re-scored
+// by the backend after every move / delete / swap, so the numbers always match the geometry on screen.
+function LayoutMetricsStrip({ m }: { m: LayoutMetrics }) {
+  const cells: { label: string; value: string }[] = [
+    { label: "seats", value: String(m.seats) },
+    { label: "open", value: String(m.open_seats) },
+    { label: "enclosed", value: String(m.enclosed_seats) },
+    { label: "rooms", value: String(m.rooms) },
+    { label: "usable", value: `${num(m.usable_sf)} sf` },
+    { label: "density", value: m.seats ? `${num(m.density_sf_per_person)} sf/seat` : "—" },
+  ];
+  return (
+    <div className="layout-metrics" role="group" aria-label="Live layout metrics">
+      {cells.map((c) => (
+        <div className="layout-metric" key={c.label}>
+          <span className="layout-metric-value">{c.value}</span>
+          <span className="layout-metric-label">{c.label}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

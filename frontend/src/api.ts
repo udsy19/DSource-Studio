@@ -224,6 +224,19 @@ export async function fetchLayoutBom(layout: import("./types").ExtractedLayout):
   return res.json();
 }
 
+// Live seat/density metrics for an edited layout — re-scored after a move / delete / swap.
+export async function fetchLayoutMetrics(
+  layout: import("./types").ExtractedLayout,
+): Promise<import("./types").LayoutMetrics> {
+  const res = await fetch("/api/layout/metrics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(layout),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 // Piece-swap alternatives for a furniture category (real SKUs to drop in for one item).
 export async function fetchProducts(category: string): Promise<import("./types").Product[]> {
   const res = await fetch(`/api/library/products?category=${encodeURIComponent(category)}`);

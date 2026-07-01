@@ -28,6 +28,10 @@ type LayoutProps = {
   onSelectFurniture?: (f: ExtractedFurniture) => void;
   selectedRoomId?: string | null;
   onSelectRoom?: (r: ExtractedRoom) => void;
+  // Editable canvas: drag a piece to a new position (x, y = its new bbox min-corner, feet), or
+  // remove it. When omitted the plan is read-only (viewer / thumbnail).
+  onMoveFurniture?: (key: string, x: number, y: number) => void;
+  onDeleteFurniture?: (key: string) => void;
 };
 type Props = FitProps | LayoutProps;
 
@@ -407,6 +411,12 @@ type RoomTag = { name: string; area: number; left: number; top: number };
 // binder that wires hover/focus highlight + the floating room tag onto a room <g>.
 type PlanApi = {
   didDrag: () => boolean;
+  // Convert a client-pixel drag (from → to) into a world-feet delta, accounting for the current
+  // pan/zoom. Used by the editable canvas to translate a dragged piece. {0,0} before first paint.
+  worldDelta: (
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+  ) => { dx: number; dy: number };
   bindRoom: (name: string, area: number) => {
     onPointerEnter: (e: React.PointerEvent) => void;
     onPointerMove: (e: React.PointerEvent) => void;
@@ -425,7 +435,11 @@ const NOOP_ROOM = {
   onFocus: () => {},
   onBlur: () => {},
 };
-const STATIC_API: PlanApi = { didDrag: () => false, bindRoom: () => NOOP_ROOM };
+const STATIC_API: PlanApi = {
+  didDrag: () => false,
+  worldDelta: () => ({ dx: 0, dy: 0 }),
+  bindRoom: () => NOOP_ROOM,
+};
 
 function PlanStage({
   view,
@@ -462,6 +476,7 @@ function PlanStage({
 
   const pz = usePanZoom(view.w, view.h);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<SVGGElement | null>(null);
   const [tag, setTag] = useState<RoomTag | null>(null);
 
   const showTag = (name: string, area: number, clientX: number, clientY: number) => {
@@ -474,6 +489,17 @@ function PlanStage({
 
   const api: PlanApi = {
     didDrag: pz.didDrag,
+    worldDelta: (from, to) => {
+      const ctm = contentRef.current?.getScreenCTM();
+      if (!ctm) return { dx: 0, dy: 0 };
+      const inv = ctm.inverse();
+      // contentRef's local space is view-space (children are drawn via view.fx/fy); invert the
+      // full screen CTM to map client px there. fx has slope +1 and fy slope -1, so world dx = view
+      // dx and world dy = -view dy.
+      const a = new DOMPoint(from.x, from.y).matrixTransform(inv);
+      const b = new DOMPoint(to.x, to.y).matrixTransform(inv);
+      return { dx: b.x - a.x, dy: -(b.y - a.y) };
+    },
     bindRoom: (name, area) => ({
       onPointerEnter: (e) => showTag(name, area, e.clientX, e.clientY),
       onPointerMove: (e) => showTag(name, area, e.clientX, e.clientY),
@@ -498,7 +524,7 @@ function PlanStage({
         {...pz.handlers}
       >
         <PlanDefs />
-        <g transform={pz.transform}>
+        <g ref={contentRef} transform={pz.transform}>
           {draw(api)}
           <SheetFurniture view={view} span={span} title={title} kind={kind} />
         </g>
@@ -689,9 +715,16 @@ function LayoutPlan({
   onSelectFurniture,
   selectedRoomId,
   onSelectRoom,
+  onMoveFurniture,
+  onDeleteFurniture,
 }: LayoutProps) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const view = useView(minx, miny, maxx, maxy);
+  // Active drag of a furniture piece: its key + the live world-feet offset (for the preview
+  // transform). A move commits on pointer-up; a drag beyond MOVE_MIN_FT suppresses the select click.
+  const [drag, setDrag] = useState<{ key: string; dx: number; dy: number } | null>(null);
+  const dragStart = useRef<{ x: number; y: number; key: string; moved: boolean } | null>(null);
+  const MOVE_MIN_FT = 0.25;
   const usedTypes = useMemo(
     () => new Set(layout.walls.map((w) => w.type)),
     [layout.walls],
@@ -823,29 +856,63 @@ function LayoutPlan({
           const tint = `var(${FURN[f.category] ?? "--furn-other"})`;
           const label = `${f.category}${f.brand ? ` · ${f.brand}` : ""}${f.model ? ` ${f.model}` : ""}`;
 
-          // only real-SKU items (f.model) can be swapped; wire selection when a handler is supplied
+          // only real-SKU items (f.model) can be selected; wire interaction when a handler is supplied
+          const k = furnitureKey(f);
           const selectable = !!f.model && !!onSelectFurniture;
-          const selected = selectable && selectedFurnitureKey === furnitureKey(f);
+          const selected = selectable && selectedFurnitureKey === k;
+          const dragging = drag?.key === k;
+          // live preview: shift by the world delta, expressed in view units (world dy is up → view -dy)
+          const previewT = dragging ? `translate(${drag!.dx} ${-drag!.dy}) ` : "";
           const swap: Record<string, unknown> = selectable
             ? {
-                className: `layout-furn${selected ? " is-selected" : ""}`,
+                className:
+                  `layout-furn${selected ? " is-selected" : ""}` +
+                  `${onMoveFurniture ? " is-movable" : ""}`,
                 role: "button",
                 tabIndex: 0,
                 "aria-pressed": selected,
-                "aria-label": `Swap ${label}`,
-                onClick: () => { if (!api.didDrag()) onSelectFurniture!(f); },
+                "aria-label": `${onMoveFurniture ? "Move or swap" : "Swap"} ${label}`,
+                onClick: () => {
+                  if (api.didDrag()) return; // a canvas pan
+                  if (dragStart.current?.moved) return; // finished a piece drag — don't also select
+                  onSelectFurniture!(f);
+                },
                 onKeyDown: (e: React.KeyboardEvent) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onSelectFurniture!(f);
+                  } else if (onDeleteFurniture && (e.key === "Delete" || e.key === "Backspace")) {
+                    e.preventDefault();
+                    onDeleteFurniture(k);
                   }
                 },
+                ...(onMoveFurniture && {
+                  onPointerDown: (e: React.PointerEvent) => {
+                    e.stopPropagation(); // begin a piece drag, not a canvas pan
+                    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                    dragStart.current = { x: e.clientX, y: e.clientY, key: k, moved: false };
+                  },
+                  onPointerMove: (e: React.PointerEvent) => {
+                    const s = dragStart.current;
+                    if (!s || s.key !== k) return;
+                    const d = api.worldDelta({ x: s.x, y: s.y }, { x: e.clientX, y: e.clientY });
+                    if (Math.abs(d.dx) > MOVE_MIN_FT || Math.abs(d.dy) > MOVE_MIN_FT) s.moved = true;
+                    setDrag({ key: k, dx: d.dx, dy: d.dy });
+                  },
+                  onPointerUp: () => {
+                    const s = dragStart.current;
+                    if (s && s.key === k && s.moved && drag && drag.key === k) {
+                      onMoveFurniture(k, f.x + drag.dx, f.y + drag.dy);
+                    }
+                    setDrag(null); // dragStart kept so the trailing onClick sees `moved` and skips select
+                  },
+                }),
               }
             : {};
 
           if (f.outline?.length) {
             return (
-              <g key={`f-${i}`} stroke="var(--furn-line)" vectorEffect="non-scaling-stroke" {...swap}>
+              <g key={`f-${i}`} transform={previewT || undefined} stroke="var(--furn-line)" vectorEffect="non-scaling-stroke" {...swap}>
                 <title>{label}</title>
                 {f.outline.map((ring, j) => {
                   const closed =
@@ -869,7 +936,7 @@ function LayoutPlan({
           return (
             <g
               key={`f-${i}`}
-              transform={`translate(${ox} ${oy}) rotate(${-f.rotation} ${cx - ox} ${cy - oy})`}
+              transform={`${previewT}translate(${ox} ${oy}) rotate(${-f.rotation} ${cx - ox} ${cy - oy})`}
               fill={tint}
               fillOpacity={0.14}
               {...swap}
