@@ -152,6 +152,21 @@ const MARKER_TYPES: { type: string; label: string }[] = [
   { type: "reception", label: "Reception / Entry" },
 ];
 
+// Change-room-type options (Room.type → label) for the editor's room property panel.
+const ROOM_TYPES: { type: string; label: string }[] = [
+  { type: "office", label: "Office" },
+  { type: "meeting", label: "Meeting" },
+  { type: "huddle", label: "Huddle" },
+  { type: "open", label: "Open plan" },
+  { type: "collab", label: "Collaboration" },
+  { type: "reception", label: "Reception" },
+  { type: "kitchen", label: "Pantry / Kitchen" },
+  { type: "storage", label: "IT / Storage" },
+  { type: "unknown", label: "Unspecified" },
+];
+// Enclosed room types (for the Open/Enclosed readout) — the rest read as open.
+const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen"]);
+
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -489,6 +504,14 @@ export default function Studio({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [renderResult]);
+
+  // Change a room's type from the editor's property panel — recolours + re-scores immediately.
+  const changeRoomType = (roomId: string, type: string) => {
+    setLayout((prev) =>
+      prev ? { ...prev, rooms: prev.rooms.map((r) => (r.id === roomId ? { ...r, type } : r)) } : prev,
+    );
+    setSwapRoom((r) => (r && r.id === roomId ? { ...r, type } : r));
+  };
 
   // Drop the pending marker where the user clicked the plan (world feet).
   const placeMarker = (x: number, y: number) => {
@@ -854,11 +877,37 @@ export default function Studio({
       )}
       {swapRoom && (
         <SwapPanel
-          title={`Swap room · ${swapRoom.label || "Room"}`}
+          title={`Room · ${swapRoom.label || "Room"}`}
           busy={swapBusy}
           empty={!!swapSettings && swapSettings.length === 0}
           onDismiss={dismissSwap}
         >
+          <div className="room-props">
+            <label className="brief-field">
+              <span className="brief-label">Type</span>
+              <select
+                className="ds-input"
+                value={ROOM_TYPES.some((t) => t.type === swapRoom.type) ? swapRoom.type : "unknown"}
+                onChange={(e) => changeRoomType(swapRoom.id, e.target.value)}
+              >
+                {ROOM_TYPES.map((t) => (
+                  <option key={t.type} value={t.type}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="prop-recap" style={{ marginTop: 4 }}>
+              <div className="prop-row"><span className="prop-k">Area</span><span className="prop-v">{swapRoom.area_sf ? `${num(swapRoom.area_sf)} sf` : "—"}</span></div>
+              {swapRoom.polygon.length >= 3 && (() => {
+                const xs = swapRoom.polygon.map((p) => p[0]);
+                const ys = swapRoom.polygon.map((p) => p[1]);
+                const w = Math.max(...xs) - Math.min(...xs);
+                const h = Math.max(...ys) - Math.min(...ys);
+                return <div className="prop-row"><span className="prop-k">Dimensions</span><span className="prop-v">{num(w)}′ × {num(h)}′</span></div>;
+              })()}
+              <div className="prop-row"><span className="prop-k">Character</span><span className="prop-v">{ENCLOSED_TYPES.has(swapRoom.type) ? "Enclosed" : "Open"}</span></div>
+            </div>
+            <Eyebrow style={{ display: "block", margin: "16px 0 8px" }}>Swap furnishing</Eyebrow>
+          </div>
           {swapSettings?.map((s) => (
             <button type="button" className="export-btn" key={s.id} onClick={() => applyRoomSwap(s)}>
               <span className="export-btn-label">{settingLabel(s.setting_type)}</span>
