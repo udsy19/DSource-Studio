@@ -700,7 +700,6 @@ export default function Studio() {
                   onDeleteFurniture={deleteFurniture}
                 />
               )}
-              {layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
               {renderResult && (
                 <div
                   className="render-overlay"
@@ -777,6 +776,8 @@ export default function Studio() {
         {studioMode === "read" ? (
           <>
             <Dropzone busy={busy} onFile={readLayout} />
+
+            {layout && layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
 
             {layout && (
               <>

@@ -66,11 +66,11 @@
   --room-fill:         rgba(26, 24, 19, 0.035);
   --room-line:         rgba(26, 24, 19, 0.16);
 
-  /* room family tints — whisper-subtle, paper-toned; distinguish program families */
-  --room-office:       rgba(138, 132, 120, 0.07);   /* private office — warm grey wash */
-  --room-meeting:      rgba(124, 151, 160, 0.08);   /* meeting / conference — cool slate wash */
-  --room-collab:       rgba(185, 138, 114, 0.07);   /* collaboration / focus — soft terracotta wash */
-  --room-amenity:      rgba(138, 156, 124, 0.06);   /* amenity / service — soft foliage wash */
+  /* room family tints — paper-toned but legible, so the program families actually read as colour */
+  --room-office:       rgba(138, 132, 120, 0.24);   /* private office — warm grey */
+  --room-meeting:      rgba(124, 151, 160, 0.26);   /* meeting / conference — cool slate */
+  --room-collab:       rgba(185, 138, 114, 0.24);   /* collaboration / focus — terracotta */
+  --room-amenity:      rgba(138, 156, 124, 0.22);   /* amenity / service — foliage */
 
   /* furniture footprints by category — quiet ink family, one soft warm tint for seating */
   --furn-seat:         #b98a72;   /* chair / sofa / stool — soft terracotta, not full accent */
