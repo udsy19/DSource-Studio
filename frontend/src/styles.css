@@ -233,7 +233,7 @@ header.bar {
 .bom-list { display: flex; flex-direction: column; gap: 6px; }
 .bom-line, .bom-total { display: flex; justify-content: space-between; gap: 10px; font: var(--t-small); }
 .bom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.bom-amt { font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
+.bom-amt { font-family: var(--serif); font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
 .bom-vendor { font-size: 10.5px; }
 .bom-total { font-weight: 600; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; }
 .bom-total .bom-amt { color: var(--accent); }
@@ -282,7 +282,7 @@ header.bar {
   font: var(--t-small); font-size: 10.5px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--muted);
 }
-.brief-val { color: var(--ink); font-variant-numeric: tabular-nums; }
+.brief-val { font-family: var(--serif); color: var(--ink); font-variant-numeric: tabular-nums; }
 
 .brief-slider {
   -webkit-appearance: none; appearance: none; width: 100%; height: 2px;
@@ -381,7 +381,7 @@ header.bar {
 }
 .version-row { display: flex; justify-content: space-between; gap: var(--s3); font-size: 11.5px; }
 .version-row-k { color: var(--muted); }
-.version-row-v { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.version-row-v { font-family: var(--serif); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 .label { font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
 
@@ -425,7 +425,7 @@ header.bar {
 }
 .room-row:last-child { border-bottom: none; }
 .rm-label { color: var(--ink-2); }
-.rm-area { font-variant-numeric: tabular-nums; color: var(--muted); }
+.rm-area { font-family: var(--serif); font-variant-numeric: tabular-nums; color: var(--muted); }
 
 /* swap chooser — piece / room alternatives, accent-framed card above the bill */
 .swap-panel {
@@ -553,3 +553,15 @@ header.bar {
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* app-level render error fallback (ErrorBoundary) */
+.error-boundary {
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 40px; background: var(--paper); color: var(--ink); text-align: center;
+}
+.error-boundary .glyph { font-family: var(--serif); font-size: 44px; color: var(--accent); }
+.error-boundary .lead { font: var(--t-lead); color: var(--ink); }
+.error-boundary .detail {
+  font-size: 12.5px; color: var(--muted); max-width: 440px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-word;
+}

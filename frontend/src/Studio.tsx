@@ -438,7 +438,8 @@ export default function Studio() {
 
   // Rasterize the current plan/3D view and send it + the selected finishes for a photoreal render.
   const visualize = async () => {
-    const svg = document.querySelector<SVGSVGElement>(".plan-viewport svg");
+    // 2D plan lives in .plan-viewport svg; the 2.5D view is .axon-svg — capture whichever is open.
+    const svg = document.querySelector<SVGSVGElement>(".plan-viewport svg, .axon-svg");
     if (!svg) {
       setErr("Open the plan or 3D view first.");
       return;
@@ -456,6 +457,16 @@ export default function Studio() {
       setRendering(false);
     }
   };
+
+  // Keyboard-dismiss the render overlay (mouse-only dismiss strands keyboard users).
+  useEffect(() => {
+    if (!renderResult) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRenderResult(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [renderResult]);
 
   const selectFurniture = (f: ExtractedFurniture) => {
     setSwapRoom(null);
@@ -599,6 +610,9 @@ export default function Studio() {
           : await generateFromConcept(f, concept);
       setVersions(res);
       setSelectedId(res.alternatives[0]?.id ?? null);
+      if (res.alternatives.length === 0) {
+        setErr("No test-fit versions could be generated for this plate + program. Try adjusting the program.");
+      }
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
     } finally {
@@ -708,7 +722,7 @@ export default function Studio() {
                   onClick={() => setRenderResult(null)}
                 >
                   <img className="render-result" src={renderResult} alt="Photoreal render of the layout" />
-                  <span className="render-dismiss-hint">Click to dismiss</span>
+                  <span className="render-dismiss-hint">Click or press Esc to dismiss</span>
                 </div>
               )}
             </>
@@ -771,7 +785,7 @@ export default function Studio() {
           />
         </div>
 
-        {err && <div className="err">{err}</div>}
+        {err && <div className="err" role="alert">{err}</div>}
 
         {studioMode === "read" ? (
           <>

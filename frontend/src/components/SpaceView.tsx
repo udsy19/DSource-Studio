@@ -14,6 +14,9 @@ type Pt = [number, number];
 type RGB = [number, number, number];
 
 // ── warm paper/ink palette ──
+// NOTE: numeric RGB tuples the isometric shader lightens/darkens (can't do that math on a CSS var
+// at draw time). PAPER/INK mirror tokens.css --paper/--ink; the tints are derived from --paper-3 /
+// --line / --furn-*. Keep in sync with tokens.css (unifies with the 2D render path in Phase D).
 const PAPER = "#f4f1ea";
 const FLOOR: RGB = [232, 225, 211];
 const WALL: RGB = [225, 217, 201];
@@ -445,7 +448,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
         <div className="render-overlay" onClick={() => setRender(null)}>
           <div className="render-card" onClick={(e) => e.stopPropagation()}>
             <div className="render-head">
-              <span style={{ color: "#b8552f" }} className="ds-eyebrow">
+              <span style={{ color: "var(--accent)" }} className="ds-eyebrow">
                 {render.busy ? "Rendering…" : render.err ? "Render unavailable" : "Photoreal render"}
               </span>
               <button type="button" className="link-btn" onClick={() => setRender(null)}>Close</button>

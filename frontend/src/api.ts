@@ -44,47 +44,6 @@ export async function renderView(
   return res.json();
 }
 
-export async function cadSvg(file: File): Promise<{ svg: string }> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/cad/svg", { method: "POST", body: fd });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
-  return res.json();
-}
-
-export async function sourceIndia(
-  counts: Record<string, number>,
-): Promise<import("./types").IndiaSource> {
-  const res = await fetch("/api/source/india", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ counts }),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
-  return res.json();
-}
-
-export async function matchProduct(
-  text: string,
-  k = 3,
-): Promise<import("./types").MatchResult[]> {
-  const res = await fetch("/api/match", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, k }),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
-  return (await res.json()).results ?? [];
-}
-
-export async function cadGeometry(file: File): Promise<import("./types").CadGeometry> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/cad/geometry", { method: "POST", body: fd });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
-  return res.json();
-}
-
 export async function ingestCad(file: File): Promise<import("./types").ExtractedLayout> {
   const fd = new FormData();
   fd.append("file", file);
@@ -173,13 +132,6 @@ export async function iterateDetailed(body: {
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   return res.json();
-}
-
-export async function downloadTakeoff(file: File, opts?: AltOpts): Promise<void> {
-  await downloadBlob(
-    await fetch("/api/testfit/takeoff", { method: "POST", body: planForm(file, opts) }),
-    "quantity-takeoff.xlsx",
-  );
 }
 
 // Qbiq-grade takeoff from the REAL extracted layout (the multi-sheet workbook).
@@ -321,9 +273,6 @@ export async function downloadReport(reportData: {
     "space-planning-report.pdf",
   );
 }
-
-export const inr = (n: number, frac = 0) =>
-  n.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: frac });
 
 export const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 

@@ -71,22 +71,6 @@ export interface Wellbeing {
   notes: string[];
 }
 
-export interface CadPath {
-  pts: [number, number][];
-  layer: string;
-  closed: boolean;
-  wall: boolean;
-}
-
-export interface CadGeometry {
-  units: string;
-  path_count: number;
-  truncated: boolean;
-  bounds: { minx: number; miny: number; maxx: number; maxy: number } | null;
-  layers: Record<string, number>;
-  paths: CadPath[];
-}
-
 export interface Elements {
   furniture: { chairs: number; desks: number; tables: number; sofas: number; ottomans: number };
   spaces: {
