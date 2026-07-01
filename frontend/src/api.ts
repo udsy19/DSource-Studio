@@ -52,20 +52,6 @@ export async function ingestCad(file: File): Promise<import("./types").Extracted
   return res.json();
 }
 
-interface AltOpts {
-  headcount?: number;
-  density_rsf_per_person?: number;
-}
-
-function planForm(file: File, opts?: AltOpts): FormData {
-  const fd = new FormData();
-  fd.append("file", file);
-  if (opts?.headcount != null) fd.append("headcount", String(opts.headcount));
-  if (opts?.density_rsf_per_person != null)
-    fd.append("density_rsf_per_person", String(opts.density_rsf_per_person));
-  return fd;
-}
-
 async function downloadBlob(res: Response, filename: string): Promise<void> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   const url = URL.createObjectURL(await res.blob());
@@ -78,17 +64,7 @@ async function downloadBlob(res: Response, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export async function generateAlternatives(
-  file: File,
-  opts?: AltOpts,
-): Promise<import("./types").AlternativesResponse> {
-  const res = await fetch("/api/testfit/alternatives", { method: "POST", body: planForm(file, opts) });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
-  return res.json();
-}
-
 // Concept mode: generate scored test-fit VERSIONS from a plate + a simple brief.
-// Same response shape as generateAlternatives; the brief drives the layout.
 export async function generateFromConcept(
   file: File,
   concept: import("./types").ConceptProgram,
@@ -132,16 +108,6 @@ export async function iterateDetailed(body: {
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   return res.json();
-}
-
-// Qbiq-grade takeoff from the REAL extracted layout (the multi-sheet workbook).
-export async function downloadLayoutTakeoff(file: File): Promise<void> {
-  const fd = new FormData();
-  fd.append("file", file);
-  await downloadBlob(
-    await fetch("/api/ingest/takeoff", { method: "POST", body: fd }),
-    "quantity-takeoff.xlsx",
-  );
 }
 
 // Takeoff from an already-extracted layout (an adopted generated version) — JSON body, not a file.
@@ -229,13 +195,6 @@ export async function fetchGeometry(sku: string): Promise<SymbolGeometry> {
   const res = await fetch(`/api/library/geometry?sku=${encodeURIComponent(sku)}`);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   return res.json();
-}
-
-export async function downloadIfc(file: File, opts?: AltOpts): Promise<void> {
-  await downloadBlob(
-    await fetch("/api/testfit/ifc", { method: "POST", body: planForm(file, opts) }),
-    "model.ifc",
-  );
 }
 
 // Export a SELECTED generated version directly from its plan + fit (no regeneration).

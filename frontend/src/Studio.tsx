@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   downloadDxfFromFit,
-  downloadIfc,
   downloadIfcFromFit,
-  downloadLayoutTakeoff,
   downloadReport,
   downloadTakeoffFromFit,
   downloadTakeoffFromLayout,
-  generateAlternatives,
   fetchGeometry,
   fetchLayoutBom,
   fetchLayoutMetrics,
@@ -28,6 +25,7 @@ import Dropzone from "./components/Dropzone";
 import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
 import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
+import WizardStepper, { type WizardStep } from "./components/WizardStepper";
 import { layoutFromFit } from "./fitToLayout";
 import { type ProjectStatus, type WorkflowProject } from "./workflowProjects";
 import type {
@@ -293,7 +291,9 @@ export default function Studio({
   project?: WorkflowProject | null;
   onStatus?: (s: ProjectStatus) => void;
 }) {
-  const [studioMode, setStudioMode] = useState<"read" | "generate">("read");
+  // Guided pipeline: the current stage. Replaces the old read/generate toggle.
+  const [step, setStep] = useState<WizardStep>("property");
+  const [units, setUnits] = useState<"imperial" | "metric">("metric");
 
   // Read-layout state (the existing flow).
   const [layout, setLayout] = useState<ExtractedLayout | null>(null);
@@ -622,6 +622,7 @@ export default function Studio({
         setErr("No test-fit versions could be generated for this plate + program. Try adjusting the program.");
       } else {
         onStatus?.("ready");
+        setStep("review");
       }
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
@@ -654,7 +655,7 @@ export default function Studio({
     dismissSwap();
     setLayout(layoutFromFit(versions.plan, sel.testfit.instances));
     setAdoptedFit({ plan: versions.plan, alternative: sel });
-    setStudioMode("read");
+    setStep("review");
     setView("plan");
   }
 
@@ -665,7 +666,20 @@ export default function Studio({
     );
   };
   const pinnedKeys = useMemo(() => new Set(pinned.map(instanceKey)), [pinned]);
-  const canPin = studioMode === "generate" && genMode === "detailed";
+  const canPin = step === "review" && genMode === "detailed";
+
+  // Which pipeline steps are reachable given progress (uploaded a plate / generated versions).
+  const reachable = (s: WizardStep): boolean => {
+    if (s === "property" || s === "space") return true;
+    if (s === "review") return !!versions;
+    return !!file; // program, visualize need a plate
+  };
+  const goStep = (s: WizardStep) => {
+    if (!reachable(s)) return;
+    setErr(null);
+    dismissSwap();
+    setStep(s);
+  };
 
   async function runExport(kind: string, fn: () => Promise<void>) {
     if (!file) return;
@@ -680,548 +694,380 @@ export default function Studio({
     }
   }
 
-  async function exportReport() {
-    if (!file) return;
-    const alts = await generateAlternatives(file);
-    await downloadReport({
-      project: {
-        client: project?.address ?? "",
-        building: project?.name ?? file.name.replace(/\.(dxf|dwg)$/i, ""),
-        style: "Modern",
-        floor: project?.floor ?? "",
-      },
-      plan: alts.plan,
-      alternatives: alts.alternatives,
-    });
-  }
 
   const building = file?.name.replace(/\.(dxf|dwg)$/i, "") ?? "Plan";
   const inv = layout?.inventory ?? {};
   const rooms = (layout?.rooms ?? []).filter((r) => r.label);
   const selected = versions?.alternatives.find((a) => a.id === selectedId) ?? null;
 
-  return (
-    <main className="studio">
-      <section className="stage">
-        {studioMode === "read" ? (
-          layout ? (
+  const STEP_ORDER: WizardStep[] = ["property", "space", "program", "visualize", "review"];
+  const stepIdx = STEP_ORDER.indexOf(step);
+  const prevStep = stepIdx > 0 ? STEP_ORDER[stepIdx - 1] : null;
+  const nextStep = stepIdx < STEP_ORDER.length - 1 ? STEP_ORDER[stepIdx + 1] : null;
+  const reviewAdopted = step === "review" && !!adoptedFit;
+
+  const viewToggle = (
+    <div className="stage-tools">
+      <Segmented
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "plan", label: "Plan" },
+          { value: "space", label: "3D Space" },
+        ]}
+      />
+    </div>
+  );
+
+  const layoutStage = layout && (
+    <>
+      {viewToggle}
+      {view === "space" ? (
+        <SpaceView layout={layout} />
+      ) : (
+        <PlanCanvas
+          layout={layout}
+          selectedFurnitureKey={swapFurniture ? furnitureKey(swapFurniture) : null}
+          onSelectFurniture={selectFurniture}
+          selectedRoomId={swapRoom?.id ?? null}
+          onSelectRoom={selectRoom}
+          onMoveFurniture={moveFurniture}
+          onDeleteFurniture={deleteFurniture}
+        />
+      )}
+      {renderResult && (
+        <div className="render-overlay" role="dialog" aria-label="Photoreal render" onClick={() => setRenderResult(null)}>
+          <img className="render-result" src={renderResult} alt="Photoreal render of the layout" />
+          <span className="render-dismiss-hint">Click or press Esc to dismiss</span>
+        </div>
+      )}
+    </>
+  );
+
+  const fitStage = versions && selected && (
+    <>
+      {viewToggle}
+      {view === "space" ? (
+        <SpaceView plan={versions.plan} instances={selected.testfit.instances} />
+      ) : (
+        <PlanCanvas
+          plan={versions.plan}
+          instances={selected.testfit.instances}
+          pinnedKeys={canPin ? pinnedKeys : undefined}
+          onTogglePin={canPin ? togglePin : undefined}
+        />
+      )}
+    </>
+  );
+
+  const emptyStage = (glyph: string, msg: string) => (
+    <div className="empty">
+      <div className="glyph">{glyph}</div>
+      <p>{msg}</p>
+    </div>
+  );
+
+  const stageBody =
+    step === "review"
+      ? reviewAdopted
+        ? layoutStage
+        : fitStage || emptyStage("◳", "Set a program and generate to lay out three scored test-fits.")
+      : layout
+        ? layoutStage
+        : emptyStage(
+            "⌟",
+            step === "space"
+              ? "Drop a floor plate — walls by type, rooms and a furniture inventory, straight from your CAD."
+              : "Upload a floor plate in the Space step first.",
+          );
+
+  // Editing panels shared by Space (inspect the plate) and Review (edit an adopted design).
+  const editingPanels = layout && (
+    <>
+      {swapFurniture && (
+        <SwapPanel
+          title={`Swap · ${swapFurniture.category}`}
+          busy={swapBusy}
+          empty={!!swapProducts && swapProducts.length === 0}
+          preview={
             <>
-              <div className="stage-tools">
-                <Segmented
-                  value={view}
-                  onChange={setView}
-                  options={[
-                    { value: "plan", label: "Plan" },
-                    { value: "space", label: "3D Space" },
-                  ]}
-                />
-              </div>
-              {view === "space" ? (
-                <SpaceView layout={layout} />
-              ) : (
-                <PlanCanvas
-                  layout={layout}
-                  selectedFurnitureKey={swapFurniture ? furnitureKey(swapFurniture) : null}
-                  onSelectFurniture={selectFurniture}
-                  selectedRoomId={swapRoom?.id ?? null}
-                  onSelectRoom={selectRoom}
-                  onMoveFurniture={moveFurniture}
-                  onDeleteFurniture={deleteFurniture}
-                />
-              )}
-              {renderResult && (
-                <div
-                  className="render-overlay"
-                  role="dialog"
-                  aria-label="Photoreal render"
-                  onClick={() => setRenderResult(null)}
-                >
-                  <img className="render-result" src={renderResult} alt="Photoreal render of the layout" />
-                  <span className="render-dismiss-hint">Click or press Esc to dismiss</span>
-                </div>
-              )}
+              <ShapeThumb outline={swapFurniture.outline} w={swapFurniture.w} h={swapFurniture.h} />
+              <span className="swap-current">
+                {swapFurniture.model ? `${swapFurniture.brand} ${swapFurniture.model}` : "Selected piece"}
+              </span>
             </>
-          ) : (
-            <div className="empty">
-              <div className="glyph">⌟</div>
-              <p>
-                Drop a floor plate. DSource Studio reads the real layout — walls by type, rooms, and a
-                furniture inventory — straight from your CAD, in 2D and 3D.
-              </p>
+          }
+          onDismiss={dismissSwap}
+        >
+          <button type="button" className="export-btn is-danger" onClick={() => deleteFurniture(furnitureKey(swapFurniture))}>
+            <span className="export-btn-label">Remove this piece</span>
+            <span className="export-btn-meta">delete · drag on plan to move</span>
+          </button>
+          {swapProducts?.map((p, i) => (
+            <button type="button" className="export-btn" key={`${p.brand}-${p.model}-${i}`} onClick={() => applyPieceSwap(p)}>
+              <span className="export-btn-label">{p.brand} {p.model}</span>
+              <span className="export-btn-meta">{priceMeta(p.list_price, swapFurniture.list_price)}</span>
+            </button>
+          ))}
+        </SwapPanel>
+      )}
+      {swapRoom && (
+        <SwapPanel
+          title={`Swap room · ${swapRoom.label || "Room"}`}
+          busy={swapBusy}
+          empty={!!swapSettings && swapSettings.length === 0}
+          onDismiss={dismissSwap}
+        >
+          {swapSettings?.map((s) => (
+            <button type="button" className="export-btn" key={s.id} onClick={() => applyRoomSwap(s)}>
+              <span className="export-btn-label">{settingLabel(s.setting_type)}</span>
+              <span className="export-btn-meta">{num(s.sqft)} sf · {s.furniture.length} pcs</span>
+            </button>
+          ))}
+        </SwapPanel>
+      )}
+      <div>
+        <Eyebrow style={{ display: "block", marginBottom: 14 }}>Elements · bill of components</Eyebrow>
+        <div className="el-grid">
+          {INVENTORY_ROWS.filter((r) => inv[r.key]).map((r) => (
+            <ElCount key={r.key} n={inv[r.key]} k={r.label} />
+          ))}
+        </div>
+        <p className="disclaim" style={{ marginTop: 12 }}>
+          Read straight from the CAD — counted from named blocks, with brand &amp; model where the drawing carries it.
+        </p>
+      </div>
+      {rooms.length > 0 && (
+        <>
+          <hr className="ds-rule" />
+          <div>
+            <Eyebrow style={{ display: "block", marginBottom: 12 }}>Rooms · {rooms.length}</Eyebrow>
+            <div className="rooms-list">
+              {rooms.map((r) => (
+                <div className="room-row" key={r.id}>
+                  <span className="rm-label">{r.label}</span>
+                  <span className="rm-area">{r.area_sf ? `${num(r.area_sf)} sf` : "—"}</span>
+                </div>
+              ))}
             </div>
-          )
-        ) : versions && selected ? (
-          <>
-            <div className="stage-tools">
+          </div>
+        </>
+      )}
+      {bom && bom.lines.length > 0 && (
+        <>
+          <hr className="ds-rule" />
+          <div>
+            <Eyebrow style={{ display: "block", marginBottom: 12 }}>Bill of materials · priced</Eyebrow>
+            <div className="bom-list">
+              {bom.lines.map((l, i) => (
+                <div className="bom-line" key={`${l.model}-${i}`}>
+                  <span className="bom-name">{l.qty}× {l.brand} {l.model}</span>
+                  <span className="bom-amt">{money(l.line_total, bom.currency)}</span>
+                </div>
+              ))}
+              <div className="bom-line bom-total">
+                <span className="bom-name">Total · {bom.priced_items} priced</span>
+                <span className="bom-amt">{money(bom.total, bom.currency)}</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {layout.needs_confirmation && (
+        <Callout quiet>
+          Room boundaries are best-effort where the drawing's walls don't fully close — labels and counts
+          are exact; confirm boundaries before fabrication.
+        </Callout>
+      )}
+    </>
+  );
+
+  return (
+    <main className="studio studio-wizard">
+      <WizardStepper step={step} onStep={goStep} reachable={reachable} />
+
+      <section className="stage">{stageBody}</section>
+
+      <aside className="panel">
+        {err && <div className="err" role="alert">{err}</div>}
+
+        {step === "property" && (
+          <div className="wizard-panel">
+            <Eyebrow style={{ display: "block", marginBottom: 12 }}>Property</Eyebrow>
+            <div className="prop-recap">
+              <div className="prop-row"><span className="prop-k">Name</span><span className="prop-v">{project?.name ?? "—"}</span></div>
+              <div className="prop-row"><span className="prop-k">Address</span><span className="prop-v">{project?.address || "—"}</span></div>
+              <div className="prop-row"><span className="prop-k">Floor</span><span className="prop-v">{project?.floor || "—"}</span></div>
+            </div>
+            <div className="brief-field" style={{ marginTop: 16 }}>
+              <span className="brief-label">Units</span>
               <Segmented
-                value={view}
-                onChange={setView}
+                value={units}
+                onChange={setUnits}
                 options={[
-                  { value: "plan", label: "Plan" },
-                  { value: "space", label: "3D Space" },
+                  { value: "metric", label: "Metric · sqm" },
+                  { value: "imperial", label: "Imperial · sqft" },
                 ]}
               />
             </div>
-            {view === "space" ? (
-              <SpaceView plan={versions.plan} instances={selected.testfit.instances} />
-            ) : (
-              <PlanCanvas
-                plan={versions.plan}
-                instances={selected.testfit.instances}
-                pinnedKeys={canPin ? pinnedKeys : undefined}
-                onTogglePin={canPin ? togglePin : undefined}
-              />
-            )}
-          </>
-        ) : (
-          <div className="empty">
-            <div className="glyph">◳</div>
-            <p>
-              Pick a program and generate. DSource Studio lays out multiple test-fit versions on your
-              plate, scores each, and lets you compare them — then open one in 2D and 3D.
+            <p className="disclaim" style={{ marginTop: 14 }}>
+              Working in {units === "metric" ? "square metres" : "square feet"}. Next: upload the floor plate.
             </p>
           </div>
         )}
-      </section>
 
-      <aside className="panel">
-        <div className="mode-toggle">
-          <Segmented
-            value={studioMode}
-            onChange={(m) => {
-              setStudioMode(m);
-              setErr(null);
-              dismissSwap();
-            }}
-            options={[
-              { value: "read", label: "Read layout" },
-              { value: "generate", label: "Generate" },
-            ]}
-          />
-        </div>
-
-        {err && <div className="err" role="alert">{err}</div>}
-
-        {studioMode === "read" ? (
+        {step === "space" && (
           <>
             <Dropzone busy={busy} onFile={readLayout} />
-
             {layout && layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
-
-            {layout && (
-              <>
-                {swapFurniture && (
-                  <SwapPanel
-                    title={`Swap · ${swapFurniture.category}`}
-                    busy={swapBusy}
-                    empty={!!swapProducts && swapProducts.length === 0}
-                    preview={
-                      <>
-                        <ShapeThumb
-                          outline={swapFurniture.outline}
-                          w={swapFurniture.w}
-                          h={swapFurniture.h}
-                        />
-                        <span className="swap-current">
-                          {swapFurniture.model
-                            ? `${swapFurniture.brand} ${swapFurniture.model}`
-                            : "Selected piece"}
-                        </span>
-                      </>
-                    }
-                    onDismiss={dismissSwap}
-                  >
-                    <button
-                      type="button"
-                      className="export-btn is-danger"
-                      onClick={() => deleteFurniture(furnitureKey(swapFurniture))}
-                    >
-                      <span className="export-btn-label">Remove this piece</span>
-                      <span className="export-btn-meta">delete · drag on plan to move</span>
-                    </button>
-                    {swapProducts?.map((p, i) => (
-                      <button
-                        type="button"
-                        className="export-btn"
-                        key={`${p.brand}-${p.model}-${i}`}
-                        onClick={() => applyPieceSwap(p)}
-                      >
-                        <span className="export-btn-label">
-                          {p.brand} {p.model}
-                        </span>
-                        <span className="export-btn-meta">
-                          {priceMeta(p.list_price, swapFurniture.list_price)}
-                        </span>
-                      </button>
-                    ))}
-                  </SwapPanel>
-                )}
-
-                {swapRoom && (
-                  <SwapPanel
-                    title={`Swap room · ${swapRoom.label || "Room"}`}
-                    busy={swapBusy}
-                    empty={!!swapSettings && swapSettings.length === 0}
-                    onDismiss={dismissSwap}
-                  >
-                    {swapSettings?.map((s) => (
-                      <button
-                        type="button"
-                        className="export-btn"
-                        key={s.id}
-                        onClick={() => applyRoomSwap(s)}
-                      >
-                        <span className="export-btn-label">{settingLabel(s.setting_type)}</span>
-                        <span className="export-btn-meta">
-                          {num(s.sqft)} sf · {s.furniture.length} pcs
-                        </span>
-                      </button>
-                    ))}
-                  </SwapPanel>
-                )}
-
-                <div>
-                  <Eyebrow style={{ display: "block", marginBottom: 14 }}>
-                    Elements · bill of components
-                  </Eyebrow>
-                  <div className="el-grid">
-                    {INVENTORY_ROWS.filter((r) => inv[r.key]).map((r) => (
-                      <ElCount key={r.key} n={inv[r.key]} k={r.label} />
-                    ))}
-                  </div>
-                  <p className="disclaim" style={{ marginTop: 12 }}>
-                    Read straight from the CAD — counted from named blocks, with brand &amp; model where
-                    the drawing carries it.
-                  </p>
-                </div>
-
-                {rooms.length > 0 && (
-                  <>
-                    <hr className="ds-rule" />
-                    <div>
-                      <Eyebrow style={{ display: "block", marginBottom: 12 }}>
-                        Rooms · {rooms.length}
-                      </Eyebrow>
-                      <div className="rooms-list">
-                        {rooms.map((r) => (
-                          <div className="room-row" key={r.id}>
-                            <span className="rm-label">{r.label}</span>
-                            <span className="rm-area">{r.area_sf ? `${num(r.area_sf)} sf` : "—"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {bom && bom.lines.length > 0 && (
-                  <>
-                    <hr className="ds-rule" />
-                    <div>
-                      <Eyebrow style={{ display: "block", marginBottom: 12 }}>
-                        Bill of materials · priced
-                      </Eyebrow>
-                      <div className="bom-list">
-                        {bom.lines.map((l, i) => (
-                          <div className="bom-line" key={`${l.model}-${i}`}>
-                            <span className="bom-name">
-                              {l.qty}× {l.brand} {l.model}
-                            </span>
-                            <span className="bom-amt">{money(l.line_total, bom.currency)}</span>
-                          </div>
-                        ))}
-                        <div className="bom-line bom-total">
-                          <span className="bom-name">Total · {bom.priced_items} priced</span>
-                          <span className="bom-amt">{money(bom.total, bom.currency)}</span>
-                        </div>
-                      </div>
-                      <p className="disclaim" style={{ marginTop: 10 }}>
-                        Manufacturer list prices read straight from the drawing’s spec attributes
-                        {bom.unpriced_items > 0
-                          ? ` · ${bom.unpriced_items} item(s) carry no price`
-                          : ""}
-                        .
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {layout.needs_confirmation && (
-                  <Callout quiet>
-                    Room boundaries are best-effort where the drawing's walls don't fully close — labels
-                    and counts are exact; confirm boundaries before fabrication.
-                  </Callout>
-                )}
-
-                <hr className="ds-rule" />
-                {layout.source === "generated" ? (
-                  <div className="exports">
-                    <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
-                    <div className="export-actions">
-                      <button
-                        className="export-btn export-btn--primary"
-                        onClick={() => runExport("takeoff", () => downloadTakeoffFromLayout(layout))}
-                        disabled={!!exporting}
-                      >
-                        <span className="export-btn-label">Quantity takeoff</span>
-                        <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
-                      </button>
-                      {adoptedFit && (
-                        <>
-                          <button
-                            className="export-btn"
-                            onClick={() =>
-                              runExport("report", () =>
-                                downloadReport({
-                                  project: { client: "", building, style: "Modern", floor: "" },
-                                  plan: adoptedFit.plan,
-                                  alternatives: [adoptedFit.alternative],
-                                }),
-                              )
-                            }
-                            disabled={!!exporting}
-                          >
-                            <span className="export-btn-label">Space-planning report</span>
-                            <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF"}</span>
-                          </button>
-                          <button
-                            className="export-btn"
-                            onClick={() =>
-                              runExport("ifc", () =>
-                                downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }),
-                              )
-                            }
-                            disabled={!!exporting}
-                          >
-                            <span className="export-btn-label">BIM model</span>
-                            <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
-                          </button>
-                          <button
-                            className="export-btn"
-                            onClick={() =>
-                              runExport("dxf", () =>
-                                downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }),
-                              )
-                            }
-                            disabled={!!exporting}
-                          >
-                            <span className="export-btn-label">CAD drawing</span>
-                            <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="exports">
-                    <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
-                    <div className="export-actions">
-                      <button
-                        className="export-btn export-btn--primary"
-                        onClick={() => runExport("report", exportReport)}
-                        disabled={!!exporting}
-                      >
-                        <span className="export-btn-label">Space-planning report</span>
-                        <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF · 3 options"}</span>
-                      </button>
-                      <button
-                        className="export-btn"
-                        onClick={() => runExport("takeoff", () => downloadLayoutTakeoff(file!))}
-                        disabled={!!exporting}
-                      >
-                        <span className="export-btn-label">Quantity takeoff</span>
-                        <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
-                      </button>
-                      <button
-                        className="export-btn"
-                        onClick={() => runExport("ifc", () => downloadIfc(file!))}
-                        disabled={!!exporting}
-                      >
-                        <span className="export-btn-label">BIM model</span>
-                        <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {renderReady && (
-                  <FinishesPanel
-                    finishes={finishes}
-                    onChange={setFinishes}
-                    onVisualize={visualize}
-                    busy={rendering}
-                  />
-                )}
-              </>
-            )}
+            {editingPanels}
           </>
-        ) : (
+        )}
+
+        {step === "program" && (
           <>
             <div className="brief-field">
               <Segmented
                 value={genMode}
-                onChange={(m) => {
-                  setGenMode(m);
-                  setErr(null);
-                }}
+                onChange={(m) => { setGenMode(m); setErr(null); }}
                 options={[
                   { value: "concept", label: "Concept" },
                   { value: "detailed", label: "Detailed" },
                 ]}
               />
             </div>
-
-            <Dropzone busy={busy} onFile={generate} />
-            {file && <p className="disclaim">{file.name}</p>}
-
+            {!file && <Callout quiet>Upload a floor plate in the Space step to enable generation.</Callout>}
             {genMode === "concept" ? (
-              <ConceptForm
-                concept={concept}
-                onChange={setConcept}
-                busy={busy}
-                file={file}
-                onGenerate={generate}
-                hasVersions={!!versions}
-              />
+              <ConceptForm concept={concept} onChange={setConcept} busy={busy} file={file} onGenerate={generate} hasVersions={!!versions} />
             ) : (
-              <DetailedForm
-                program={detailed}
-                onChange={setDetailed}
-                busy={busy}
-                file={file}
-                onGenerate={generate}
-                hasVersions={!!versions}
-              />
-            )}
-
-            <VersionList
-              versions={versions}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-
-            {canPin && versions && (
-              <>
-                <hr className="ds-rule" />
-                <div className="iterate">
-                  <Eyebrow style={{ display: "block", marginBottom: 10 }}>Iterate · pin & regenerate</Eyebrow>
-                  <p className="disclaim" style={{ marginBottom: 12 }}>
-                    Click rooms on the plan to pin them, adjust the program above, then regenerate —
-                    pinned rooms stay put while the rest re-places.
-                  </p>
-                  <div className="iterate-head">
-                    <span className="brief-label">
-                      {pinned.length} pinned
-                    </span>
-                    {pinned.length > 0 && (
-                      <button type="button" className="link-btn" onClick={() => setPinned([])}>
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    className="export-btn export-btn--primary"
-                    style={{ marginTop: 10, width: "100%" }}
-                    onClick={regenerate}
-                    disabled={busy}
-                  >
-                    <span className="export-btn-label">
-                      {busy ? "Regenerating…" : "Regenerate"}
-                    </span>
-                    <span className="export-btn-meta">
-                      {pinned.length > 0 ? `keep ${pinned.length} pinned` : "re-place all"}
-                    </span>
-                  </button>
-                </div>
-              </>
-            )}
-
-            {versions && selected && (
-              <>
-                <hr className="ds-rule" />
-                <div className="adopt">
-                  <Eyebrow style={{ display: "block", marginBottom: 10 }}>Layout · adopt version</Eyebrow>
-                  <p className="disclaim" style={{ marginBottom: 12 }}>
-                    Move version {selected.id} into Read layout — its rooms, partitions, and desks
-                    become a full layout you can inspect in 2D, 3D, and the inventory.
-                  </p>
-                  <button
-                    className="export-btn export-btn--primary"
-                    style={{ width: "100%" }}
-                    onClick={adoptLayout}
-                    disabled={busy}
-                  >
-                    <span className="export-btn-label">Open in Read layout</span>
-                    <span className="export-btn-meta">→ rooms · walls · inventory</span>
-                  </button>
-                </div>
-
-                <hr className="ds-rule" />
-                <div className="exports">
-                  <Eyebrow style={{ display: "block", marginBottom: 14 }}>
-                    Export · version {selected.id}
-                  </Eyebrow>
-                  <div className="export-actions">
-                    <button
-                      className="export-btn export-btn--primary"
-                      onClick={() =>
-                        runExport("report", () =>
-                          downloadReport({
-                            project: { client: "", building, style: "Modern", floor: "" },
-                            plan: versions.plan,
-                            alternatives: versions.alternatives,
-                          }),
-                        )
-                      }
-                      disabled={!!exporting}
-                    >
-                      <span className="export-btn-label">Space-planning report</span>
-                      <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF · 3 options"}</span>
-                    </button>
-                    <button
-                      className="export-btn"
-                      onClick={() =>
-                        runExport("takeoff", () =>
-                          downloadTakeoffFromFit({ plan: versions.plan, testfit: selected.testfit }),
-                        )
-                      }
-                      disabled={!!exporting}
-                    >
-                      <span className="export-btn-label">Quantity takeoff</span>
-                      <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · BOM"}</span>
-                    </button>
-                    <button
-                      className="export-btn"
-                      onClick={() =>
-                        runExport("ifc", () =>
-                          downloadIfcFromFit({ plan: versions.plan, testfit: selected.testfit }),
-                        )
-                      }
-                      disabled={!!exporting}
-                    >
-                      <span className="export-btn-label">BIM model</span>
-                      <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
-                    </button>
-                    <button
-                      className="export-btn"
-                      onClick={() =>
-                        runExport("dxf", () =>
-                          downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }),
-                        )
-                      }
-                      disabled={!!exporting}
-                    >
-                      <span className="export-btn-label">CAD drawing</span>
-                      <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
-                    </button>
-                  </div>
-                  <p className="disclaim" style={{ marginTop: 12 }}>
-                    Report compares all three versions; takeoff, BIM &amp; CAD export the selected one.
-                  </p>
-                </div>
-              </>
+              <DetailedForm program={detailed} onChange={setDetailed} busy={busy} file={file} onGenerate={generate} hasVersions={!!versions} />
             )}
           </>
         )}
+
+        {step === "visualize" && (
+          renderReady ? (
+            <FinishesPanel finishes={finishes} onChange={setFinishes} onVisualize={visualize} busy={rendering} />
+          ) : (
+            <Callout quiet>
+              Photoreal render needs a provider key (RENDER_API_KEY or REPLICATE_API_TOKEN) in the backend.
+              You can still set finishes and generate the test-fits.
+            </Callout>
+          )
+        )}
+
+        {step === "review" && (
+          reviewAdopted ? (
+            <>
+              <button type="button" className="link-btn" style={{ marginBottom: 12 }} onClick={() => { setAdoptedFit(null); dismissSwap(); }}>
+                ← Back to versions
+              </button>
+              {editingPanels}
+              <hr className="ds-rule" />
+              <div className="exports">
+                <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
+                <div className="export-actions">
+                  <button className="export-btn export-btn--primary" onClick={() => runExport("takeoff", () => downloadTakeoffFromLayout(layout!))} disabled={!!exporting}>
+                    <span className="export-btn-label">Quantity takeoff</span>
+                    <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
+                  </button>
+                  {adoptedFit && (
+                    <>
+                      <button className="export-btn" onClick={() => runExport("report", () => downloadReport({ project: { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" }, plan: adoptedFit.plan, alternatives: [adoptedFit.alternative] }))} disabled={!!exporting}>
+                        <span className="export-btn-label">Space-planning report</span>
+                        <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF"}</span>
+                      </button>
+                      <button className="export-btn" onClick={() => runExport("ifc", () => downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }))} disabled={!!exporting}>
+                        <span className="export-btn-label">BIM model</span>
+                        <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
+                      </button>
+                      <button className="export-btn" onClick={() => runExport("dxf", () => downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }))} disabled={!!exporting}>
+                        <span className="export-btn-label">CAD drawing</span>
+                        <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <VersionList versions={versions} selectedId={selectedId} onSelect={setSelectedId} />
+              {canPin && versions && (
+                <>
+                  <hr className="ds-rule" />
+                  <div className="iterate">
+                    <Eyebrow style={{ display: "block", marginBottom: 10 }}>Iterate · pin &amp; regenerate</Eyebrow>
+                    <p className="disclaim" style={{ marginBottom: 12 }}>
+                      Click rooms on the plan to pin them, adjust the program, then regenerate — pinned rooms stay put.
+                    </p>
+                    <div className="iterate-head">
+                      <span className="brief-label">{pinned.length} pinned</span>
+                      {pinned.length > 0 && (
+                        <button type="button" className="link-btn" onClick={() => setPinned([])}>Clear</button>
+                      )}
+                    </div>
+                    <button className="export-btn export-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={regenerate} disabled={busy}>
+                      <span className="export-btn-label">{busy ? "Regenerating…" : "Regenerate"}</span>
+                      <span className="export-btn-meta">{pinned.length > 0 ? `keep ${pinned.length} pinned` : "re-place all"}</span>
+                    </button>
+                  </div>
+                </>
+              )}
+              {versions && selected && (
+                <>
+                  <hr className="ds-rule" />
+                  <div className="adopt">
+                    <Eyebrow style={{ display: "block", marginBottom: 10 }}>Edit · adopt a version</Eyebrow>
+                    <p className="disclaim" style={{ marginBottom: 12 }}>
+                      Open version {selected.id} in the editor — rooms, partitions and desks become editable; swap, move and delete.
+                    </p>
+                    <button className="export-btn export-btn--primary" style={{ width: "100%" }} onClick={adoptLayout} disabled={busy}>
+                      <span className="export-btn-label">Open in editor</span>
+                      <span className="export-btn-meta">→ edit · swap · export</span>
+                    </button>
+                  </div>
+                  <hr className="ds-rule" />
+                  <div className="exports">
+                    <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · version {selected.id}</Eyebrow>
+                    <div className="export-actions">
+                      <button className="export-btn export-btn--primary" onClick={() => runExport("report", () => downloadReport({ project: { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" }, plan: versions.plan, alternatives: versions.alternatives }))} disabled={!!exporting}>
+                        <span className="export-btn-label">Space-planning report</span>
+                        <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF · 3 options"}</span>
+                      </button>
+                      <button className="export-btn" onClick={() => runExport("takeoff", () => downloadTakeoffFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
+                        <span className="export-btn-label">Quantity takeoff</span>
+                        <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · BOM"}</span>
+                      </button>
+                      <button className="export-btn" onClick={() => runExport("ifc", () => downloadIfcFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
+                        <span className="export-btn-label">BIM model</span>
+                        <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
+                      </button>
+                      <button className="export-btn" onClick={() => runExport("dxf", () => downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
+                        <span className="export-btn-label">CAD drawing</span>
+                        <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
+                      </button>
+                    </div>
+                    <p className="disclaim" style={{ marginTop: 12 }}>
+                      Report compares all three versions; takeoff, BIM &amp; CAD export the selected one.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          )
+        )}
+
+        <div className="wizard-nav">
+          {prevStep && (
+            <button type="button" className="wizard-nav-btn" onClick={() => goStep(prevStep)}>← Back</button>
+          )}
+          {nextStep && (
+            <button type="button" className="wizard-nav-btn is-next" onClick={() => goStep(nextStep)} disabled={!reachable(nextStep)}>
+              Next →
+            </button>
+          )}
+        </div>
       </aside>
     </main>
   );
@@ -1700,3 +1546,4 @@ function MetricRow({ label, value }: { label: string; value: string }) {
 }
 
 const pct = (n: Metrics["daylight_pct"]) => `${Math.round(n * 100)}%`;
+
