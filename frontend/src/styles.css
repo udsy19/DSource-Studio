@@ -646,3 +646,21 @@ header.bar {
 .wizard-nav-btn:disabled { opacity: 0.4; cursor: default; }
 .wizard-nav-btn.is-next { margin-left: auto; background: var(--accent); color: var(--paper); border-color: var(--accent); }
 .wizard-nav-btn.is-next:hover:not(:disabled) { background: var(--accent-press); color: var(--paper); }
+
+/* ── room markers (Space step) ── */
+.plan-viewport svg.is-placing { cursor: crosshair; }
+.marker-label { font-family: var(--sans); font-size: 1.7px; font-weight: 600; fill: var(--accent);
+  letter-spacing: 0.02em; pointer-events: none; paint-order: stroke; stroke: var(--paper);
+  stroke-width: 0.6px; stroke-linejoin: round; }
+.markers { margin-top: 6px; }
+.marker-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.marker-chip { border: 1px solid var(--line-2); background: var(--paper); color: var(--ink-2);
+  border-radius: var(--r-pill); padding: 6px 12px; cursor: pointer; font: 500 12px/1 var(--sans); }
+.marker-chip:hover { border-color: var(--accent-line); color: var(--accent); }
+.marker-chip.is-active { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.markers-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.marker-row { display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; background: var(--paper-2); border-radius: var(--r1); }
+.marker-row-label { font-size: 12.5px; color: var(--ink); }
+.marker-del { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.marker-del:hover { color: var(--accent); }

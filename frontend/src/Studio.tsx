@@ -19,6 +19,7 @@ import {
   renderStatus,
   renderView,
   type Bom,
+  type RoomSeed,
   type SymbolGeometry,
 } from "./api";
 import Dropzone from "./components/Dropzone";
@@ -140,6 +141,17 @@ const ROOM_CATALOG: {
     ],
   },
 ];
+// Room-marker palette (Space step): drop one on the plan to tell detection "this room is here".
+// `type` is a Room.type the frontend colour-maps; `label` is what shows on the pin + room.
+const MARKER_TYPES: { type: string; label: string }[] = [
+  { type: "office", label: "Office" },
+  { type: "meeting", label: "Meeting" },
+  { type: "collab", label: "Collab" },
+  { type: "storage", label: "IT / Storage" },
+  { type: "kitchen", label: "Pantry" },
+  { type: "reception", label: "Reception / Entry" },
+];
+
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -299,6 +311,9 @@ export default function Studio({
   const [layout, setLayout] = useState<ExtractedLayout | null>(null);
   const [layoutMetrics, setLayoutMetrics] = useState<LayoutMetrics | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  // Space-step room markers (seeds) + the pending marker type awaiting a click on the plan.
+  const [markers, setMarkers] = useState<RoomSeed[]>([]);
+  const [pendingMarker, setPendingMarker] = useState<{ type: string; label: string } | null>(null);
 
   // Visualization (finishes → photoreal render). Gated on a configured provider key.
   const [finishes, setFinishes] = useState<Record<string, string>>({
@@ -475,6 +490,27 @@ export default function Studio({
     return () => window.removeEventListener("keydown", onKey);
   }, [renderResult]);
 
+  // Drop the pending marker where the user clicked the plan (world feet).
+  const placeMarker = (x: number, y: number) => {
+    if (!pendingMarker) return;
+    setMarkers((m) => [...m, { ...pendingMarker, x, y }]);
+    setPendingMarker(null);
+  };
+  // Re-run detection with the markers as extra seeds (explicit — re-ingest is a few seconds).
+  const reDetect = async () => {
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+    dismissSwap();
+    try {
+      setLayout(await ingestCad(file, markers));
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const selectFurniture = (f: ExtractedFurniture) => {
     setSwapRoom(null);
     setSwapFurniture(f);
@@ -587,6 +623,8 @@ export default function Studio({
     setErr(null);
     setLayout(null);
     setAdoptedFit(null);
+    setMarkers([]);
+    setPendingMarker(null);
     dismissSwap();
     setFile(f);
     try {
@@ -733,6 +771,9 @@ export default function Studio({
           onSelectRoom={selectRoom}
           onMoveFurniture={moveFurniture}
           onDeleteFurniture={deleteFurniture}
+          markers={step === "space" ? markers : undefined}
+          placing={step === "space" && !!pendingMarker}
+          onPlacePoint={step === "space" ? placeMarker : undefined}
         />
       )}
       {renderResult && (
@@ -920,6 +961,45 @@ export default function Studio({
           <>
             <Dropzone busy={busy} onFile={readLayout} />
             {layout && layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
+            {layout && (
+              <div className="markers">
+                <Eyebrow style={{ display: "block", marginBottom: 10 }}>Mark rooms · guide detection</Eyebrow>
+                <p className="disclaim" style={{ marginBottom: 10 }}>
+                  Pick a type, then click the plan to place it — detection will treat that spot as that room.
+                </p>
+                <div className="marker-palette">
+                  {MARKER_TYPES.map((m) => (
+                    <button
+                      key={m.type}
+                      type="button"
+                      className={`marker-chip${pendingMarker?.type === m.type ? " is-active" : ""}`}
+                      onClick={() => setPendingMarker(pendingMarker?.type === m.type ? null : m)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {pendingMarker && (
+                  <Callout>Click on the plan to place <b>{pendingMarker.label}</b>. <button type="button" className="link-btn" onClick={() => setPendingMarker(null)}>Cancel</button></Callout>
+                )}
+                {markers.length > 0 && (
+                  <>
+                    <div className="markers-list">
+                      {markers.map((m, i) => (
+                        <div className="marker-row" key={i}>
+                          <span className="marker-row-label">{m.label}</span>
+                          <button type="button" className="marker-del" aria-label={`Remove ${m.label}`} onClick={() => setMarkers(markers.filter((_, j) => j !== i))}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="export-btn export-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={reDetect} disabled={busy}>
+                      <span className="export-btn-label">{busy ? "Re-detecting…" : "Re-detect with markers"}</span>
+                      <span className="export-btn-meta">{markers.length} marker{markers.length === 1 ? "" : "s"}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {editingPanels}
           </>
         )}

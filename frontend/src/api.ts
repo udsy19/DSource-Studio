@@ -44,9 +44,15 @@ export async function renderView(
   return res.json();
 }
 
-export async function ingestCad(file: File): Promise<import("./types").ExtractedLayout> {
+export type RoomSeed = { type: string; label: string; x: number; y: number };
+
+export async function ingestCad(
+  file: File,
+  seeds?: RoomSeed[],
+): Promise<import("./types").ExtractedLayout> {
   const fd = new FormData();
   fd.append("file", file);
+  if (seeds && seeds.length) fd.append("seeds", JSON.stringify(seeds));
   const res = await fetch("/api/ingest/cad", { method: "POST", body: fd });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   return res.json();

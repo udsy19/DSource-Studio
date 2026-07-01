@@ -211,6 +211,16 @@ def _unlabeled_rooms_dxf() -> bytes:
     return text.getvalue().encode("utf-8")
 
 
+def test_user_seed_marks_a_room_type():
+    # The left cell holds two workstations, so it detects as an open field. A user marker dropped
+    # there saying "this is a meeting room" must win — the seed is authoritative.
+    seeds = [{"type": "meeting", "label": "Boardroom", "x": 10.0, "y": 10.0}]
+    layout = read_cad(_unlabeled_rooms_dxf(), "unlabeled.dxf", user_seeds=seeds)
+    marked = [r for r in layout.rooms if r.polygon and r.type == "meeting"]
+    assert marked, f"a user 'meeting' marker should produce a meeting room; types were {[r.type for r in layout.rooms]}"
+    assert any(r.label == "Boardroom" for r in marked)
+
+
 def test_unlabeled_room_type_inferred_from_furniture():
     layout = read_cad(_unlabeled_rooms_dxf(), "unlabeled.dxf")
     unlabeled = [r for r in layout.rooms if not r.label and r.polygon]

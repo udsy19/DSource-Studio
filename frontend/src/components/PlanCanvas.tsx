@@ -32,6 +32,10 @@ type LayoutProps = {
   // remove it. When omitted the plan is read-only (viewer / thumbnail).
   onMoveFurniture?: (key: string, x: number, y: number) => void;
   onDeleteFurniture?: (key: string) => void;
+  // Room markers the user has dropped (feet) + place mode: a click on the plan drops one.
+  markers?: { type: string; label: string; x: number; y: number }[];
+  placing?: boolean;
+  onPlacePoint?: (x: number, y: number) => void;
 };
 type Props = FitProps | LayoutProps;
 
@@ -457,6 +461,8 @@ function PlanStage({
   draw,
   overlay,
   compact,
+  placing,
+  onPlacePoint,
 }: {
   view: View;
   span: number;
@@ -465,6 +471,8 @@ function PlanStage({
   draw: (api: PlanApi) => ReactNode;
   overlay?: ReactNode;
   compact?: boolean;
+  placing?: boolean;
+  onPlacePoint?: (x: number, y: number) => void;
 }) {
   // Version thumbnails: a plain, contained, non-interactive mini-plan — no absolute viewport, no
   // pan/zoom, no sheet chrome — so many of them can sit in the side panel without stacking.
@@ -520,16 +528,28 @@ function PlanStage({
     }),
   };
 
+  // Click → world-feet, for dropping a room marker. Recovers the view origin from view.fx(0)/fy(0)
+  // (fx(x)=x-x0, fy(y)=y1-y), so world = (local.x - fx(0), fy(0) - local.y).
+  const placeAt = (clientX: number, clientY: number) => {
+    if (!onPlacePoint || !placing || pz.didDrag()) return;
+    const ctm = contentRef.current?.getScreenCTM();
+    if (!ctm) return;
+    const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+    const r = (n: number) => Math.round(n * 100) / 100;
+    onPlacePoint(r(p.x - view.fx(0)), r(view.fy(0) - p.y));
+  };
+
   return (
     <div className="plan-viewport" ref={hostRef}>
       <svg
         ref={pz.svgRef}
         viewBox={`0 0 ${view.w} ${view.h}`}
         preserveAspectRatio="xMidYMid meet"
-        className={pz.isPanning ? "is-panning" : undefined}
+        className={`${pz.isPanning ? "is-panning" : ""}${placing ? " is-placing" : ""}`.trim() || undefined}
         role="application"
         aria-label={`${title} floor plan — drag to pan, scroll to zoom`}
         {...pz.handlers}
+        onClick={placing ? (e) => placeAt(e.clientX, e.clientY) : undefined}
       >
         <PlanDefs />
         <g ref={contentRef} transform={pz.transform}>
@@ -725,6 +745,9 @@ function LayoutPlan({
   onSelectRoom,
   onMoveFurniture,
   onDeleteFurniture,
+  markers,
+  placing,
+  onPlacePoint,
 }: LayoutProps) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const view = useView(minx, miny, maxx, maxy);
@@ -781,6 +804,8 @@ function LayoutPlan({
       title={sheetName(layout.source)}
       kind="EXTRACTED LAYOUT"
       compact={compact}
+      placing={placing}
+      onPlacePoint={onPlacePoint}
       overlay={
         // legends — the room-family colour key and the wall-type key, each showing only what's present
         <>
@@ -1016,6 +1041,15 @@ function LayoutPlan({
             </g>
           );
         })}
+
+        {/* user-dropped room markers (seeds) — pinned on top */}
+        {markers?.map((m, i) => (
+          <g key={`mk-${i}`} transform={`translate(${view.fx(m.x)} ${view.fy(m.y)})`}>
+            <circle r={2.6} fill="var(--accent-soft)" stroke="var(--accent)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+            <circle r={0.7} fill="var(--accent)" />
+            <text className="marker-label" textAnchor="middle" y={-3.4}>{m.label}</text>
+          </g>
+        ))}
       </>
       )}
     />

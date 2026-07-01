@@ -88,7 +88,9 @@ _AREA_RE = re.compile(r"(\d+(?:\.\d+)?)\s*SF", re.IGNORECASE)
 _MIN_ROOM_SF = 20.0  # a region smaller than this isn't a usable room
 
 
-def read_cad(content: bytes, filename: str, extract_outline: bool = True) -> ExtractedLayout:
+def read_cad(
+    content: bytes, filename: str, extract_outline: bool = True, user_seeds: list[dict] | None = None
+) -> ExtractedLayout:
     """Read a CAD layout. `extract_outline` (default on) flattens each item's real plan geometry for
     true-shape rendering — it's the slow part, so the catalog build turns it OFF (footprint is enough
     for slotting/swapping, and storing outlines for 684 apps would bloat the library to ~400 MB)."""
@@ -116,7 +118,7 @@ def read_cad(content: bytes, filename: str, extract_outline: bool = True) -> Ext
     # `walls` (not `wall_lines`); without it the open plate edge leaks and every perimeter-adjacent
     # room drops to label-only. Seal it into the room boundaries.
     room_lines = wall_lines + [LineString(w.points) for w in walls if w.type == "perimeter"]
-    rooms, room_note = _read_rooms(room_lines, panels, doors, bounds, msp, lf, furniture)
+    rooms, room_note = _read_rooms(room_lines, panels, doors, bounds, msp, lf, furniture, user_seeds)
     _assign_rooms(furniture, rooms)
     if room_note:
         notes.append(room_note)
@@ -508,6 +510,7 @@ _HULL_REACH_FT = 13.0  # a label-only room borrows the hull of furniture within 
 def _read_rooms(
     wall_lines: list[LineString], panels: list[FurnitureItem], doors: list[Door],
     bounds: tuple[float, float, float, float], msp, lf: float, furniture: list[FurnitureItem],
+    user_seeds: list[dict] | None = None,
 ) -> tuple[list[Room], str | None]:
     """Label-seeded room detection (see room_segment). Boundaries = healed walls + glass partitions
     + door plugs; each room label is a seed. Every returned room records how its boundary was
@@ -518,7 +521,12 @@ def _read_rooms(
     boundaries += [_door_segment(d) for d in doors]  # plug doorways so rooms don't leak through them
     boundaries = [b for b in boundaries if b.length > 0.1]
 
-    seed_points = [(lx, ly) for (lx, ly, _n, _a) in labels]
+    # Segmentation seeds = CAD room labels first, then any user-dropped markers ("IT room here").
+    user_seeds = user_seeds or []
+    label_points = [(lx, ly) for (lx, ly, _n, _a) in labels]
+    user_points = [(float(s["x"]), float(s["y"])) for s in user_seeds]
+    seed_points = label_points + user_points
+    n_labels = len(labels)
     regions = segment_regions(boundaries, seed_points, bounds) if boundaries else []
 
     centers = [(f, Point(f.x + f.w / 2, f.y + f.h / 2)) for f in furniture]
@@ -528,7 +536,13 @@ def _read_rooms(
     for reg in regions:
         poly = Polygon(reg.polygon)
         inside = [f for f, c in centers if poly.contains(c)]
-        if reg.seed_index is not None:
+        if reg.seed_index is not None and reg.seed_index >= n_labels:
+            # a user-dropped marker — its type is authoritative (the user is correcting detection)
+            us = user_seeds[reg.seed_index - n_labels]
+            rtype = us.get("type") or (_room_type_from_furniture(inside) if inside else "unknown")
+            label = us.get("label") or rtype.replace("_", " ").title()
+            room_area = reg.area_sf
+        elif reg.seed_index is not None:
             _lx, _ly, name, area_sf = labels[reg.seed_index]
             claimed.add(reg.seed_index)
             rtype = _classify_room(name)
