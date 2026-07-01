@@ -24,6 +24,7 @@ import {
   type SymbolGeometry,
 } from "./api";
 import Dropzone from "./components/Dropzone";
+import { furnitureSymbol } from "./components/furnitureSymbols";
 import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
 import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
@@ -382,6 +383,8 @@ export default function Studio({
   const [selectedDoor, setSelectedDoor] = useState<number | null>(null);
   const [swapProducts, setSwapProducts] = useState<Product[] | null>(null);
   const [swapSettings, setSwapSettings] = useState<CatalogSetting[] | null>(null);
+  const [swapTab, setSwapTab] = useState<"layouts" | "items">("layouts");
+  const [appliedSettingId, setAppliedSettingId] = useState<string | null>(null);
   const [swapBusy, setSwapBusy] = useState(false);
 
   // Merge-rooms mode — pick two adjacent rooms then union them into one larger space. After a merge
@@ -590,6 +593,8 @@ export default function Studio({
     setSwapFurniture(null);
     setSelectedDoor(null);
     setSwapRoom(r);
+    setSwapTab("layouts");
+    setAppliedSettingId(null);
   };
   const selectDoor = (index: number) => {
     setSwapFurniture(null);
@@ -600,6 +605,7 @@ export default function Studio({
     setSwapFurniture(null);
     setSwapRoom(null);
     setSelectedDoor(null);
+    setAppliedSettingId(null);
   };
 
   // Edit the selected door in place — flip its swing side, flip the swing direction (rotate the
@@ -754,7 +760,8 @@ export default function Studio({
     });
     const furniture = [...kept, ...placed];
     setLayout({ ...layout, furniture, inventory: recountInventory(layout.inventory, furniture) });
-    dismissSwap();
+    // Keep the palette open so the applied arrangement reads as selected and others stay a click away.
+    setAppliedSettingId(s.id);
   }
 
   async function readLayout(f: File) {
@@ -1079,12 +1086,54 @@ export default function Studio({
             </div>
             <Eyebrow style={{ display: "block", margin: "16px 0 8px" }}>Swap furnishing</Eyebrow>
           </div>
-          {swapSettings?.map((s) => (
-            <button type="button" className="export-btn" key={s.id} onClick={() => applyRoomSwap(s)}>
-              <span className="export-btn-label">{settingLabel(s.setting_type)}</span>
-              <span className="export-btn-meta">{num(s.sqft)} sf · {s.furniture.length} pcs</span>
-            </button>
-          ))}
+          <Segmented
+            options={[
+              { value: "layouts", label: "Layouts" },
+              { value: "items", label: "Items" },
+            ]}
+            value={swapTab}
+            onChange={setSwapTab}
+          />
+          {swapTab === "layouts" ? (
+            <div className="arr-palette" role="group" aria-label="Room layouts">
+              {swapSettings?.map((s) => {
+                const pcs = s.furniture.filter((sf) => SLOT_CATS.has(sf.category)).length;
+                const selected = appliedSettingId === s.id;
+                return (
+                  <button
+                    type="button"
+                    key={s.id}
+                    className={`arr-card${selected ? " is-selected" : ""}`}
+                    aria-pressed={selected}
+                    aria-label={`${settingLabel(s.setting_type)}, ${num(s.sqft)} square feet, ${pcs} pieces`}
+                    onClick={() => applyRoomSwap(s)}
+                  >
+                    <ArrangementThumb setting={s} />
+                    <span className="arr-label">{settingLabel(s.setting_type)}</span>
+                    <span className="arr-meta">{num(s.sqft)} sf · {pcs} pcs</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="room-items">
+              <p className="disclaim">Select a piece on the plan to swap it.</p>
+              <div className="rooms-list">
+                {layout.furniture
+                  .filter(
+                    (f) =>
+                      SLOT_CATS.has(f.category) &&
+                      pointInPolygon(f.x + f.w / 2, f.y + f.h / 2, swapRoom.polygon),
+                  )
+                  .map((f, i) => (
+                    <div className="room-row" key={`${f.category}-${i}`}>
+                      <span className="rm-label">{f.category}</span>
+                      <span className="rm-area">{f.model ? `${f.brand} ${f.model}` : "—"}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
         </SwapPanel>
       )}
       {selectedDoor != null && layout.doors[selectedDoor] && (() => {
@@ -1473,6 +1522,32 @@ function ShapeThumb({ outline, w, h }: { outline?: [number, number][][]; w: numb
       ) : (
         <rect x={tx(minx)} y={ty(maxy)} width={bw * k} height={bh * k} />
       )}
+    </svg>
+  );
+}
+
+// A mini-plan of a setting's arrangement — its placed furniture drawn in the room's own footprint,
+// ink hairlines on a paper field, y-flipped so it reads like PlanCanvas. Powers the Layouts palette.
+// Filters to SLOT_CATS so the thumbnail shows exactly what applyRoomSwap will drop in.
+function ArrangementThumb({ setting }: { setting: CatalogSetting }) {
+  const pieces = setting.furniture.filter((sf) => SLOT_CATS.has(sf.category));
+  const W = Math.max(setting.width_ft || Math.max(0.1, ...pieces.map((p) => p.dx + p.w)), 0.1);
+  const H = Math.max(setting.height_ft || Math.max(0.1, ...pieces.map((p) => p.dy + p.h)), 0.1);
+  const boxW = 120, boxH = 88, pad = 7;
+  const k = Math.min((boxW - pad * 2) / W, (boxH - pad * 2) / H);
+  const ox0 = (boxW - W * k) / 2;
+  const oy0 = (boxH - H * k) / 2;
+  return (
+    <svg className="arr-thumb" viewBox={`0 0 ${boxW} ${boxH}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      {pieces.map((sf, i) => {
+        const ox = ox0 + sf.dx * k;
+        const oy = oy0 + (H - sf.dy - sf.h) * k; // y-flip: world +y is up, screen +y is down
+        return (
+          <g key={i} transform={`translate(${ox} ${oy}) scale(${k}) rotate(${-sf.rotation} ${sf.w / 2} ${sf.h / 2})`}>
+            {furnitureSymbol(sf.category, sf.w, sf.h)}
+          </g>
+        );
+      })}
     </svg>
   );
 }
