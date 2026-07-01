@@ -109,7 +109,11 @@ def read_cad(content: bytes, filename: str, extract_outline: bool = True) -> Ext
         )
 
     panels = [f for f in furniture if f.category in ("panel", "mullion")]
-    rooms, room_note = _read_rooms(wall_lines, panels, doors, bounds, msp, lf)
+    # Rooms must be bounded by the building perimeter too. _synthesize_perimeter appended it to
+    # `walls` (not `wall_lines`); without it the open plate edge leaks and every perimeter-adjacent
+    # room drops to label-only. Seal it into the room boundaries.
+    room_lines = wall_lines + [LineString(w.points) for w in walls if w.type == "perimeter"]
+    rooms, room_note = _read_rooms(room_lines, panels, doors, bounds, msp, lf)
     _assign_rooms(furniture, rooms)
     _infer_room_types(rooms, furniture)
     if room_note:
@@ -522,22 +526,32 @@ def _read_rooms(
     return rooms, note
 
 
-# Setting-type vocabulary (furniture-mix heuristic) -> Room.type vocabulary.
-_SETTING_TO_ROOM_TYPE = {
-    "private_office": "office",
-    "meeting_room": "meeting",
-    "open": "open",
-    "collaboration": "collab",
-}
+def _room_type_from_furniture(items: list[FurnitureItem]) -> str:
+    """Classify a DETECTED room from its furniture mix into the Room vocabulary.
+
+    Deliberately not settings.infer_setting_type: a detected room is often large and can merge
+    several spaces, so desk count leads (a desk-heavy floor is an open field even if one sofa
+    strayed in) — the opposite priority to that small-single-setting heuristic. First match wins:
+    a table ringed by seats is a meeting room; many desks is an open field; a lounge sofa is
+    collaboration; one or two desks is a private office."""
+    cats = Counter(f.category for f in items)
+    desks = cats["desk"] + cats["workstation"]
+    seats = cats["chair"] + cats["stool"]
+    if cats["table"] >= 1 and seats >= 4 and desks < 2:
+        return "meeting"
+    if desks >= 2:
+        return "open"
+    if cats["sofa"] >= 1:
+        return "collab"
+    if desks >= 1:
+        return "office"
+    return "collab"
 
 
 def _infer_room_types(rooms: list[Room], furniture: list[FurnitureItem]) -> None:
     """Give each still-unknown room a functional type from the furniture assigned to it, so a
-    label-less plan still colour-codes (open field vs meeting vs office vs collaboration). Reuses
-    the settings library's furniture-mix heuristic, mapped to the Room vocabulary. Rooms that
-    already carry a type from their text label are left untouched."""
-    from ..testfit.settings import infer_setting_type
-
+    label-less (or generically-labeled) plan still colour-codes: open field vs meeting vs office
+    vs collaboration. Rooms that already carry a type from their text label are left untouched."""
     by_room: dict[str, list[FurnitureItem]] = {}
     for f in furniture:
         if f.room_id:
@@ -547,7 +561,7 @@ def _infer_room_types(rooms: list[Room], furniture: list[FurnitureItem]) -> None
             continue
         items = by_room.get(r.id)
         if items:
-            r.type = _SETTING_TO_ROOM_TYPE[infer_setting_type(items, r.area_sf or 0.0)]
+            r.type = _room_type_from_furniture(items)
 
 
 def _assign_rooms(furniture: list[FurnitureItem], rooms: list[Room]) -> None:

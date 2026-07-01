@@ -221,12 +221,48 @@ def test_unlabeled_room_type_inferred_from_furniture():
     assert "collab" in types, f"a sofa should read as collaboration; got {types}"
 
 
+def _open_edge_rooms_dxf() -> bytes:
+    """A building with its TOP edge missing (forces perimeter synthesis) and one interior partition
+    splitting it into two labeled rooms. Without sealing the synthesized perimeter into the room
+    boundaries, both rooms leak to the open plate edge and drop to label-only — this guards that
+    they close once the perimeter is included."""
+    doc = ezdxf.new(setup=True)
+    doc.header["$INSUNITS"] = 1  # inches
+    msp = doc.modelspace()
+
+    # 60ft x 40ft in inches, TOP side omitted so the perimeter must be synthesized.
+    for a, b in [((0, 0), (720, 0)), ((0, 0), (0, 480)), ((720, 0), (720, 480))]:
+        msp.add_line(a, b, dxfattribs={"layer": "A-WALL"})
+    msp.add_line((360, 0), (360, 480), dxfattribs={"layer": "A-WALL"})  # interior partition
+
+    for name, area, x in (("OFFICE A", "150 SF", 180), ("OFFICE B", "150 SF", 540)):
+        msp.add_text(name, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 240))
+        msp.add_text(area, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 216))
+
+    text = io.StringIO()
+    doc.write(text)
+    return text.getvalue().encode("utf-8")
+
+
+def test_perimeter_seal_closes_rooms_behind_open_edge():
+    layout = read_cad(_open_edge_rooms_dxf(), "open_edge.dxf")
+    closed = [r for r in layout.rooms if r.polygon and r.label]
+    labels = {r.label for r in closed}
+    assert "OFFICE A" in labels and "OFFICE B" in labels, (
+        f"both rooms should close once the synthesized perimeter seals the open edge; "
+        f"closed labels were {labels}"
+    )
+
+
 @pytest.mark.skipif(not os.path.exists(REAL_DWG), reason="real DWG not present")
 def test_real_dwg_inventory():
     with open(REAL_DWG, "rb") as f:
         layout = read_cad(f.read(), os.path.basename(REAL_DWG))
     assert layout.units == "ft"
     assert layout.inventory.get("chair", 0) > 50
+    # Perimeter-seal fix: the labeled rooms must actually close, not drop to label-only.
+    closed = [r for r in layout.rooms if r.polygon]
+    assert len(closed) >= 5, f"expected the labeled rooms to close, only {len(closed)} did"
     assert layout.inventory.get("workstation", 0) > 50
 
 
