@@ -167,6 +167,19 @@ const ROOM_TYPES: { type: string; label: string }[] = [
 // Enclosed room types (for the Open/Enclosed readout) — the rest read as open.
 const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen"]);
 
+// Room family taxonomy for the Program tree. Both vocabularies fold in: the fine program types
+// (ROOM_CATALOG groups them already) and the coarse types a read/adopted layout carries. Types
+// outside any family (open, unknown) are open-plan, not program rooms — excluded from the tree.
+const PROGRAM_FAMILIES = ROOM_CATALOG.map((f) => f.family);
+const ROOM_FAMILY: Record<string, string> = {
+  ...Object.fromEntries(ROOM_CATALOG.flatMap((f) => f.rooms.map((r) => [r.type, f.family]))),
+  office: "Offices",
+  meeting: "Conference",
+  collab: "Collaboration",
+  phone: "Collaboration",
+  amenity: "Amenities",
+};
+
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -972,6 +985,19 @@ export default function Studio({
     </>
   );
 
+  // Live metric strip + program tree, shared by Space (the read plate) and Review (adopted design).
+  // Target is the detailed program only when the layout was generated from it — read plates show
+  // detected counts with no target.
+  const editorMetrics = layout && layoutMetrics && (
+    <>
+      <LayoutMetricsStrip m={layoutMetrics} />
+      <ProgramTree
+        rooms={layout.rooms}
+        target={layout.source === "generated" && genMode === "detailed" ? detailed : null}
+      />
+    </>
+  );
+
   return (
     <main className="studio studio-wizard">
       <WizardStepper step={step} onStep={goStep} reachable={reachable} />
@@ -1009,7 +1035,7 @@ export default function Studio({
         {step === "space" && (
           <>
             <Dropzone busy={busy} onFile={readLayout} />
-            {layout && layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
+            {editorMetrics}
             {layout && (
               <div className="markers">
                 <Eyebrow style={{ display: "block", marginBottom: 10 }}>Mark rooms · guide detection</Eyebrow>
@@ -1091,6 +1117,7 @@ export default function Studio({
               <button type="button" className="link-btn" style={{ marginBottom: 12 }} onClick={() => { setAdoptedFit(null); dismissSwap(); }}>
                 ← Back to versions
               </button>
+              {editorMetrics}
               {editingPanels}
               <hr className="ds-rule" />
               <div className="exports">
@@ -1280,6 +1307,46 @@ function LayoutMetricsStrip({ m }: { m: LayoutMetrics }) {
           <span className="layout-metric-label">{c.label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Program tree — rooms grouped by family, actual vs the requested program (qbiq's ref-40 left
+// rail). Actual counts the enclosed rooms on the plan; target sums the program's per-room counts.
+// Target only when the layout was generated from that program — a read plate has no target, so it
+// shows detected counts alone (honest). Off-target surfaces a dot: over = terracotta, under = muted.
+function ProgramTree({ rooms, target }: { rooms: ExtractedRoom[]; target: DetailedProgram | null }) {
+  const actual: Record<string, number> = {};
+  for (const r of rooms) {
+    const fam = ROOM_FAMILY[r.type];
+    if (fam) actual[fam] = (actual[fam] ?? 0) + 1;
+  }
+  const want: Record<string, number> = {};
+  if (target)
+    for (const r of target.rooms) {
+      const fam = ROOM_FAMILY[r.type];
+      if (fam) want[fam] = (want[fam] ?? 0) + r.count;
+    }
+  const families = PROGRAM_FAMILIES.filter((f) => actual[f] || want[f]);
+  if (!families.length) return null;
+  return (
+    <div className="program-tree" role="group" aria-label="Program — rooms by family">
+      <Eyebrow style={{ display: "block", marginBottom: 10 }}>Program · {target ? "actual / target" : "detected"}</Eyebrow>
+      {families.map((f) => {
+        const a = actual[f] ?? 0;
+        const t = want[f];
+        const off = target && t !== undefined ? (a > t ? "over" : a < t ? "under" : null) : null;
+        return (
+          <div className={`prog-row${off ? ` is-${off}` : ""}`} key={f}>
+            <span className="prog-fam">{f}</span>
+            <span className="prog-count">
+              {a}
+              {target ? <span className="prog-target"> / {t ?? 0}</span> : null}
+              {off && <span className="prog-dot" aria-label={`${off} target`} />}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
