@@ -171,6 +171,22 @@ export async function fetchLayoutMetrics(
   return res.json();
 }
 
+// Merge two adjacent rooms into one larger space. The merged room keeps `idA` as its id, so the
+// caller can find it in the returned layout and offer a suggestion for the bigger footprint.
+export async function mergeRooms(
+  layout: import("./types").ExtractedLayout,
+  idA: string,
+  idB: string,
+): Promise<import("./types").ExtractedLayout> {
+  const res = await fetch("/api/layout/merge-rooms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ layout, room_a: idA, room_b: idB }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
 // Piece-swap alternatives for a furniture category (real SKUs to drop in for one item).
 export async function fetchProducts(category: string): Promise<import("./types").Product[]> {
   const res = await fetch(`/api/library/products?category=${encodeURIComponent(category)}`);

@@ -10,9 +10,11 @@ import io
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from ..ingestion.cad_reader import read_cad
 from ..ingestion.layout_metrics import compute_layout_metrics
+from ..ingestion.room_merge import merge_rooms
 from ..ingestion.schema import ExtractedLayout
 from ..takeoff.bom import build_bom
 from ..takeoff.layout_takeoff import build_layout_takeoff
@@ -65,3 +67,19 @@ async def layout_bom(layout: ExtractedLayout):
 async def layout_metrics(layout: ExtractedLayout):
     """Live seat/density metrics for the editable canvas — re-scored after each edit (delete/swap)."""
     return compute_layout_metrics(layout)
+
+
+class MergeRoomsRequest(BaseModel):
+    layout: ExtractedLayout
+    room_a: str
+    room_b: str
+
+
+@router.post("/api/layout/merge-rooms")
+async def merge_rooms_endpoint(body: MergeRoomsRequest) -> ExtractedLayout:
+    """Merge two adjacent rooms into one larger space. The merged room keeps `room_a`'s id, so the
+    editor can find it and offer a context-aware furnishing suggestion for the bigger footprint."""
+    try:
+        return merge_rooms(body.layout, body.room_a, body.room_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

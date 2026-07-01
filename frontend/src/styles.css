@@ -444,6 +444,13 @@ header.bar {
   stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .swap-current { font: var(--t-small); font-weight: 600; color: var(--ink); letter-spacing: 0.01em; }
 
+/* merge rooms — a quiet bordered section holding the mode toggle + merge action */
+.merge-rooms {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 15px; border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--paper);
+}
+
 /* export · deliverables */
 .exports .export-actions { display: flex; flex-direction: column; gap: 9px; }
 .export-btn {

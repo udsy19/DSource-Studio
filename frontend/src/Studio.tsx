@@ -14,6 +14,7 @@ import {
   generateFromConcept,
   ingestCad,
   iterateDetailed,
+  mergeRooms,
   money,
   num,
   renderStatus,
@@ -166,6 +167,9 @@ const ROOM_TYPES: { type: string; label: string }[] = [
 ];
 // Enclosed room types (for the Open/Enclosed readout) — the rest read as open.
 const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen"]);
+// Merged area (sf) at or above which a merged room reads as boardroom-scale in the suggestion. Below
+// it, the suggestion still offers the fitting layouts but calls them a larger meeting layout.
+const BOARDROOM_MIN_SF = 200;
 
 // Room family taxonomy for the Program tree. Both vocabularies fold in: the fine program types
 // (ROOM_CATALOG groups them already) and the coarse types a read/adopted layout carries. Types
@@ -378,6 +382,12 @@ export default function Studio({
   const [swapSettings, setSwapSettings] = useState<CatalogSetting[] | null>(null);
   const [swapBusy, setSwapBusy] = useState(false);
 
+  // Merge-rooms mode — pick two adjacent rooms then union them into one larger space. After a merge
+  // the merged room's id + area seed a context-aware furnishing suggestion (never auto-applied).
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelection, setMergeSelection] = useState<string[]>([]);
+  const [mergeSuggestion, setMergeSuggestion] = useState<{ roomId: string; area: number } | null>(null);
+
   // Priced bill of materials — fetch when a layout with priced furniture (real SKUs) is shown.
   useEffect(() => {
     if (!layout || !layout.furniture.some((f) => f.list_price != null)) {
@@ -559,6 +569,45 @@ export default function Studio({
     setSwapFurniture(null);
     setSwapRoom(null);
   };
+
+  // Merge mode is exclusive with the swap panels — entering it dismisses any open swap + suggestion,
+  // leaving it clears the pending pick, so the two flows never fight over a room click.
+  const toggleMergeMode = () => {
+    dismissSwap();
+    setMergeSuggestion(null);
+    setMergeSelection([]);
+    setMergeMode((on) => !on);
+  };
+  // Pick / unpick a room for the merge (max two — a third pick slides out the oldest).
+  const toggleMergeRoom = (r: ExtractedRoom) => {
+    setMergeSelection((sel) =>
+      sel.includes(r.id)
+        ? sel.filter((id) => id !== r.id)
+        : sel.length < 2
+          ? [...sel, r.id]
+          : [sel[1], r.id],
+    );
+  };
+  // Union the two picked rooms into one, then select the merged room's id + area to seed the
+  // context-aware suggestion. Never auto-swaps furniture — the user chooses from the panel.
+  async function applyMerge() {
+    if (!layout || mergeSelection.length !== 2) return;
+    const [idA, idB] = mergeSelection;
+    setSwapBusy(true);
+    setErr(null);
+    try {
+      const next = await mergeRooms(layout, idA, idB);
+      setLayout(next);
+      const merged = next.rooms.find((r) => r.id === idA);
+      setMergeMode(false);
+      setMergeSelection([]);
+      if (merged) setMergeSuggestion({ roomId: merged.id, area: merged.area_sf ?? 0 });
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setSwapBusy(false);
+    }
+  }
 
   // Piece swap — replace the selected item with a catalog product, keeping its centre + rotation.
   // Applies INSTANTLY (footprint) so it feels real-time, then upgrades to the SKU's real plan shape
@@ -805,6 +854,8 @@ export default function Studio({
           onSelectFurniture={selectFurniture}
           selectedRoomId={swapRoom?.id ?? null}
           onSelectRoom={selectRoom}
+          mergeSelection={mergeMode ? mergeSelection : undefined}
+          onToggleMergeRoom={mergeMode ? toggleMergeRoom : undefined}
           onMoveFurniture={moveFurniture}
           onDeleteFurniture={deleteFurniture}
           markers={step === "space" ? markers : undefined}
@@ -859,8 +910,58 @@ export default function Studio({
           );
 
   // Editing panels shared by Space (inspect the plate) and Review (edit an adopted design).
+  const mergeableRooms = layout ? layout.rooms.filter((r) => r.polygon.length >= 3).length : 0;
+  const mergedRoom =
+    mergeSuggestion && layout
+      ? layout.rooms.find((r) => r.id === mergeSuggestion.roomId) ?? null
+      : null;
   const editingPanels = layout && (
     <>
+      {mergeableRooms >= 2 && (
+        <div className="merge-rooms">
+          <div className="swap-head">
+            <Eyebrow>Merge rooms</Eyebrow>
+            <button
+              type="button"
+              className={`link-btn${mergeMode ? " is-on" : ""}`}
+              aria-pressed={mergeMode}
+              onClick={toggleMergeMode}
+            >
+              {mergeMode ? "Cancel" : "Start"}
+            </button>
+          </div>
+          {mergeMode && (
+            <>
+              <p className="disclaim" style={{ marginBottom: 10 }}>
+                Pick two adjacent rooms on the plan, then merge them into one larger space.
+              </p>
+              <button
+                type="button"
+                className="export-btn export-btn--primary"
+                disabled={mergeSelection.length !== 2 || swapBusy}
+                onClick={applyMerge}
+              >
+                <span className="export-btn-label">{swapBusy ? "Merging…" : "Merge these two rooms"}</span>
+                <span className="export-btn-meta">{mergeSelection.length} of 2 picked</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {mergeSuggestion && mergedRoom && (
+        <Callout>
+          This is now a {num(mergeSuggestion.area)} sf enclosed room —{" "}
+          {mergeSuggestion.area >= BOARDROOM_MIN_SF ? "a boardroom-scale layout" : "a larger meeting layout"}{" "}
+          fits here.{" "}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => { selectRoom(mergedRoom); setMergeSuggestion(null); }}
+          >
+            Show layouts
+          </button>
+        </Callout>
+      )}
       {swapFurniture && (
         <SwapPanel
           title={`Swap · ${swapFurniture.category}`}

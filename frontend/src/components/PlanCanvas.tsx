@@ -28,6 +28,10 @@ type LayoutProps = {
   onSelectFurniture?: (f: ExtractedFurniture) => void;
   selectedRoomId?: string | null;
   onSelectRoom?: (r: ExtractedRoom) => void;
+  // Merge mode: when supplied, room clicks toggle the room into the merge selection (up to two)
+  // instead of selecting it for a swap; every id in `mergeSelection` shows the terracotta ring.
+  mergeSelection?: string[];
+  onToggleMergeRoom?: (r: ExtractedRoom) => void;
   // Editable canvas: drag a piece to a new position (x, y = its new bbox min-corner, feet), or
   // remove it. When omitted the plan is read-only (viewer / thumbnail).
   onMoveFurniture?: (key: string, x: number, y: number) => void;
@@ -743,6 +747,8 @@ function LayoutPlan({
   onSelectFurniture,
   selectedRoomId,
   onSelectRoom,
+  mergeSelection,
+  onToggleMergeRoom,
   onMoveFurniture,
   onDeleteFurniture,
   markers,
@@ -843,8 +849,15 @@ function LayoutPlan({
           const cx = r.center ? view.fx(r.center[0]) : null;
           const cy = r.center ? view.fy(r.center[1]) : null;
           const interactive = r.polygon.length >= 3;
-          const selectable = interactive && !!onSelectRoom;
-          const selected = selectable && selectedRoomId === r.id;
+          const inMerge = !!onToggleMergeRoom;
+          const selectable = interactive && (!!onSelectRoom || inMerge);
+          const mergePicked = inMerge && (mergeSelection?.includes(r.id) ?? false);
+          const selected = selectable && (inMerge ? mergePicked : selectedRoomId === r.id);
+          const activate = inMerge
+            ? () => onToggleMergeRoom!(r)
+            : onSelectRoom
+              ? () => onSelectRoom!(r)
+              : undefined;
           const name = r.label || "Room";
           const sf = Math.round(r.area_sf);
           return (
@@ -860,17 +873,19 @@ function LayoutPlan({
               aria-pressed={selectable ? selected : undefined}
               aria-label={
                 interactive
-                  ? `${selectable ? "Swap " : ""}${name}, ${sf} square feet`
+                  ? inMerge
+                    ? `${mergePicked ? "Remove" : "Add"} ${name} ${mergePicked ? "from" : "to"} merge selection, ${sf} square feet`
+                    : `${selectable ? "Swap " : ""}${name}, ${sf} square feet`
                   : undefined
               }
               {...(interactive ? api.bindRoom(name, r.area_sf) : {})}
-              onClick={selectable ? () => { if (!api.didDrag()) onSelectRoom!(r); } : undefined}
+              onClick={activate ? () => { if (!api.didDrag()) activate(); } : undefined}
               onKeyDown={
-                selectable
+                activate
                   ? (e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        onSelectRoom!(r);
+                        activate();
                       }
                     }
                   : undefined
