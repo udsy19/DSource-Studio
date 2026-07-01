@@ -16,11 +16,21 @@ export async function generateTestFit(file: File): Promise<TestFitResponse> {
   return res.json();
 }
 
-export async function renderView(image: string, prompt?: string): Promise<{ image: string | null }> {
+// Render status — whether a provider key is configured, so the UI can gate the Visualize action.
+export async function renderStatus(): Promise<{ configured: boolean; provider: string; model: string | null }> {
+  const res = await fetch("/api/render/status");
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+export async function renderView(
+  image: string,
+  finishes?: Record<string, string>,
+): Promise<{ image: string | null }> {
   const res = await fetch("/api/render", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(prompt ? { image, prompt } : { image }),
+    body: JSON.stringify(finishes ? { image, finishes } : { image }),
   });
   if (!res.ok) {
     let detail = res.statusText;

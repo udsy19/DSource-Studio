@@ -24,12 +24,37 @@ from ..config import settings
 router = APIRouter(prefix="/api/render", tags=["render"])
 
 
+_BASE_PROMPT = (
+    "photorealistic modern commercial office interior, same furniture layout, "
+    "soft natural daylight, architectural photography"
+)
+
+# Visualization finishes → the phrase folded into the render prompt. Order gives a natural sentence.
+_FINISH_PHRASES: list[tuple[str, str]] = [
+    ("wall", "{} walls"),
+    ("floor", "{} floor"),
+    ("partition", "{} partitions"),
+    ("palette", "{} palette"),
+    ("style", "{} style"),
+]
+
+
+def build_render_prompt(finishes: dict[str, str]) -> str:
+    """Compose the image-to-image prompt from the user's finish selections, always keeping the
+    layout-preserving base (the render must not reinvent the furniture arrangement). Blank/omitted
+    finishes are skipped, so an empty selection returns the base prompt unchanged."""
+    parts = [_BASE_PROMPT]
+    for key, template in _FINISH_PHRASES:
+        value = (finishes.get(key) or "").strip()
+        if value:
+            parts.append(template.format(value))
+    return ", ".join(parts)
+
+
 class RenderRequest(BaseModel):
     image: str  # data URL or base64 PNG/JPEG of the 3D view
-    prompt: str = (
-        "photorealistic modern commercial office interior, same furniture layout, "
-        "soft natural daylight, architectural photography"
-    )
+    prompt: str = _BASE_PROMPT
+    finishes: dict[str, str] | None = None  # when set, the prompt is composed from these selections
 
 
 @router.get("/status")
@@ -126,13 +151,14 @@ async def _render_replicate(image_data_url: str, prompt: str) -> str:
 
 @router.post("")
 async def render(req: RenderRequest):
+    prompt = build_render_prompt(req.finishes) if req.finishes else req.prompt
     provider = (settings.render_provider or "gemini").lower()
     if provider == "replicate":
         if not settings.replicate_api_token:
             raise HTTPException(status_code=501, detail="Set REPLICATE_API_TOKEN in backend/.env.")
-        return {"image": await _render_replicate(req.image, req.prompt)}
+        return {"image": await _render_replicate(req.image, prompt)}
     if provider == "gemini":
         if not settings.render_api_key:
             raise HTTPException(status_code=501, detail="Set RENDER_API_KEY (Gemini) in backend/.env.")
-        return {"image": await _render_gemini(_strip_data_url(req.image), req.prompt)}
-    return {"image": await _render_generic(req.image, req.prompt)}
+        return {"image": await _render_gemini(_strip_data_url(req.image), prompt)}
+    return {"image": await _render_generic(req.image, prompt)}

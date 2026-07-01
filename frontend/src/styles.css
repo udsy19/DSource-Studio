@@ -189,6 +189,12 @@ header.bar {
 
 .render-overlay { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
   background: rgba(26, 24, 19, 0.42); backdrop-filter: blur(3px); animation: fade 0.25s ease both; }
+.render-overlay { flex-direction: column; gap: 12px; cursor: zoom-out; }
+.render-result { max-width: 92%; max-height: 82%; border-radius: var(--r2);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); }
+.render-dismiss-hint { color: var(--paper); font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; opacity: 0.85; }
+.finishes-panel { margin-top: 18px; }
 .render-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r2);
   padding: 16px; max-width: 78vw; max-height: 84vh; box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: 12px; }
 .render-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; }

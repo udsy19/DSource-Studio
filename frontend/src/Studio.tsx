@@ -19,6 +19,8 @@ import {
   iterateDetailed,
   money,
   num,
+  renderStatus,
+  renderView,
   type Bom,
   type SymbolGeometry,
 } from "./api";
@@ -145,6 +147,35 @@ const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "flexible", label: "Flexible" },
 ];
 
+// Visualization finishes — each selection's value is the phrase folded into the render prompt
+// (empty = leave as-is). Mirrors the backend build_render_prompt keys (wall/floor/palette/style).
+const FINISH_FIELDS: { key: string; label: string; options: { value: string; label: string }[] }[] = [
+  { key: "wall", label: "Walls", options: [
+    { value: "", label: "As-is" },
+    { value: "white drywall", label: "White" },
+    { value: "walnut wood panel", label: "Walnut" },
+    { value: "exposed concrete", label: "Concrete" },
+  ] },
+  { key: "floor", label: "Floor", options: [
+    { value: "", label: "As-is" },
+    { value: "polished concrete", label: "Concrete" },
+    { value: "light oak wood", label: "Oak" },
+    { value: "grey carpet tile", label: "Carpet" },
+  ] },
+  { key: "palette", label: "Palette", options: [
+    { value: "", label: "As-is" },
+    { value: "warm neutral", label: "Warm" },
+    { value: "cool grey", label: "Cool" },
+    { value: "earthy biophilic", label: "Earthy" },
+  ] },
+  { key: "style", label: "Style", options: [
+    { value: "", label: "Modern" },
+    { value: "biophilic", label: "Biophilic" },
+    { value: "industrial", label: "Industrial" },
+    { value: "scandinavian", label: "Scandi" },
+  ] },
+];
+
 const DEFAULT_DETAILED: DetailedProgram = {
   rooms: [
     { type: "office_medium", count: 4, placement: "window" },
@@ -204,6 +235,45 @@ function pointInPolygon(px: number, py: number, poly: [number, number][]): boole
   return inside;
 }
 
+// Rasterize the on-screen plan/3D SVG to a JPEG data URL for the render provider. The plan's fills
+// are CSS var()s that don't resolve in a detached SVG, so the resolved :root custom properties are
+// copied onto the clone (custom props inherit, so descendants then resolve against them).
+async function captureSvgJpeg(svg: SVGSVGElement, scale = 2): Promise<string> {
+  const vb = svg.viewBox.baseVal;
+  const w = Math.max(1, vb.width || svg.clientWidth);
+  const h = Math.max(1, vb.height || svg.clientHeight);
+
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("width", String(w));
+  clone.setAttribute("height", String(h));
+  const rootStyle = getComputedStyle(document.documentElement);
+  const vars: string[] = [];
+  for (let i = 0; i < rootStyle.length; i++) {
+    const prop = rootStyle[i];
+    if (prop.startsWith("--")) vars.push(`${prop}:${rootStyle.getPropertyValue(prop)}`);
+  }
+  clone.setAttribute("style", vars.join(";"));
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Could not rasterize the plan view."));
+    img.src = src;
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D unavailable.");
+  ctx.fillStyle = rootStyle.getPropertyValue("--paper").trim() || "#f4f1ea";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
 // Recount furniture categories for the elements grid after a room swap, keeping non-furniture
 // tallies (doors) intact.
 function recountInventory(
@@ -222,6 +292,17 @@ export default function Studio() {
   const [layout, setLayout] = useState<ExtractedLayout | null>(null);
   const [layoutMetrics, setLayoutMetrics] = useState<LayoutMetrics | null>(null);
   const [file, setFile] = useState<File | null>(null);
+
+  // Visualization (finishes → photoreal render). Gated on a configured provider key.
+  const [finishes, setFinishes] = useState<Record<string, string>>({
+    wall: "",
+    floor: "",
+    palette: "",
+    style: "",
+  });
+  const [renderReady, setRenderReady] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [renderResult, setRenderResult] = useState<string | null>(null);
   // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
   // the from-fit endpoints (those read the plan + testfit, which the synthesized layout discards).
   const [adoptedFit, setAdoptedFit] = useState<{ plan: Plan; alternative: Alternative } | null>(null);
@@ -342,6 +423,38 @@ export default function Studio() {
       return { ...prev, furniture, inventory: recountInventory(prev.inventory, furniture) };
     });
     setSwapFurniture(null);
+  };
+
+  // Does a render provider have a key? Gate the Visualize action on it (never fake a render).
+  useEffect(() => {
+    let live = true;
+    renderStatus()
+      .then((s) => live && setRenderReady(s.configured))
+      .catch(() => live && setRenderReady(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Rasterize the current plan/3D view and send it + the selected finishes for a photoreal render.
+  const visualize = async () => {
+    const svg = document.querySelector<SVGSVGElement>(".plan-viewport svg");
+    if (!svg) {
+      setErr("Open the plan or 3D view first.");
+      return;
+    }
+    setRendering(true);
+    setErr(null);
+    try {
+      const png = await captureSvgJpeg(svg);
+      const active = Object.fromEntries(Object.entries(finishes).filter(([, v]) => v));
+      const { image } = await renderView(png, active);
+      if (image) setRenderResult(image);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Render failed.");
+    } finally {
+      setRendering(false);
+    }
   };
 
   const selectFurniture = (f: ExtractedFurniture) => {
@@ -588,6 +701,17 @@ export default function Studio() {
                 />
               )}
               {layoutMetrics && <LayoutMetricsStrip m={layoutMetrics} />}
+              {renderResult && (
+                <div
+                  className="render-overlay"
+                  role="dialog"
+                  aria-label="Photoreal render"
+                  onClick={() => setRenderResult(null)}
+                >
+                  <img className="render-result" src={renderResult} alt="Photoreal render of the layout" />
+                  <span className="render-dismiss-hint">Click to dismiss</span>
+                </div>
+              )}
             </>
           ) : (
             <div className="empty">
@@ -889,6 +1013,14 @@ export default function Studio() {
                     </div>
                   </div>
                 )}
+                {renderReady && (
+                  <FinishesPanel
+                    finishes={finishes}
+                    onChange={setFinishes}
+                    onVisualize={visualize}
+                    busy={rendering}
+                  />
+                )}
               </>
             )}
           </>
@@ -1143,6 +1275,39 @@ function LayoutMetricsStrip({ m }: { m: LayoutMetrics }) {
           <span className="layout-metric-label">{c.label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Visualization finishes selector — composes the render prompt and triggers a photoreal render of
+// the current view. Only shown when a provider key is configured (else there's nothing to call).
+function FinishesPanel({
+  finishes,
+  onChange,
+  onVisualize,
+  busy,
+}: {
+  finishes: Record<string, string>;
+  onChange: (f: Record<string, string>) => void;
+  onVisualize: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="brief finishes-panel">
+      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Visualize · finishes</Eyebrow>
+      {FINISH_FIELDS.map((f) => (
+        <div className="brief-field" key={f.key}>
+          <span className="brief-label">{f.label}</span>
+          <Segmented
+            value={finishes[f.key] ?? ""}
+            onChange={(v) => onChange({ ...finishes, [f.key]: v })}
+            options={f.options}
+          />
+        </div>
+      ))}
+      <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
+        {busy ? "Rendering…" : "Visualize"}
+      </button>
     </div>
   );
 }
