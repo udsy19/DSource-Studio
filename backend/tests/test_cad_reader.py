@@ -235,9 +235,11 @@ def _open_edge_rooms_dxf() -> bytes:
         msp.add_line(a, b, dxfattribs={"layer": "A-WALL"})
     msp.add_line((360, 0), (360, 480), dxfattribs={"layer": "A-WALL"})  # interior partition
 
-    for name, area, x in (("OFFICE A", "150 SF", 180), ("OFFICE B", "150 SF", 540)):
+    # each room is 30ft x 40ft ≈ 1200 sf — the label area must match the geometry (the reader now
+    # rejects a label whose stated area is wildly off the cell it sits in).
+    for name, x in (("OFFICE A", 180), ("OFFICE B", 540)):
         msp.add_text(name, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 240))
-        msp.add_text(area, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 216))
+        msp.add_text("1200 SF", dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 216))
 
     text = io.StringIO()
     doc.write(text)
@@ -268,9 +270,10 @@ def _gapped_partition_dxf() -> bytes:
     # partition rises from the bottom wall but stops 24in (2ft) below the top wall — a real gap.
     msp.add_line((240, 0), (240, 336), dxfattribs={"layer": "A-WALL"})
 
+    # each room is 20ft x 30ft ≈ 600 sf — label area must match the cell (reader rejects mismatches).
     for name, x in (("OFFICE A", 120), ("OFFICE B", 360)):
         msp.add_text(name, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 180))
-        msp.add_text("100 SF", dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 156))
+        msp.add_text("600 SF", dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 156))
 
     text = io.StringIO()
     doc.write(text)

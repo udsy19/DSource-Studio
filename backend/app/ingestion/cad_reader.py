@@ -70,13 +70,17 @@ _WALL_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
     (("WALL", "PARTITION", "PRTN"), "drywall"),
 ]
 
-# Room-label keyword -> room type.
+# Room-label keyword -> room type (first match wins; checked against the upper-cased label). Types
+# are the ones the frontend colour-maps (office/meeting/huddle/reception/collab/kitchen/storage).
 _ROOM_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
-    (("OFFICE",), "office"),
-    (("CONFERENCE", "MEETING"), "meeting"),
+    (("OFFICE", "CABIN", "PHONE", "FOCUS"), "office"),
+    (("CONFERENCE", "MEETING", "BOARD"), "meeting"),
     (("HUDDLE",), "huddle"),
-    (("RECEPTION",), "reception"),
-    (("BREAK", "COLLAB"), "open"),
+    (("RECEPTION", "ENTRY", "LOBBY", "WAITING"), "reception"),
+    (("COLLAB", "LOUNGE", "BREAK", "CAFE"), "collab"),
+    (("PANTRY", "KITCHEN"), "kitchen"),
+    (("STORAGE", "SERVER", "IDF", "MDF", "BMS", "UPS", "ELEC", "MECH", "LOCKER",
+      "JANITOR", "COMMS", "COPY", "PRINT", "MAIL", "WELLNESS", "MOTHER", "UTIL"), "storage"),
 ]
 
 _WALL_ENTITY_TYPES = ("LINE", "LWPOLYLINE", "POLYLINE")
@@ -539,7 +543,15 @@ def _read_rooms(
     nid = 1
     for (lx, ly, label, area_sf) in labels:
         pt = Point(lx, ly)
-        idx = next((i for i, c in enumerate(cells) if i not in used and c.contains(pt)), None)
+        # A label claims the cell it sits in only if the cell's size roughly matches its stated area
+        # — else a label dropped in open space (e.g. "PHONE RM · 50 SF") would grab the whole 3000sf
+        # field. Mismatches stay label-only; the cell is picked up as an unlabeled room below.
+        idx = next(
+            (i for i, c in enumerate(cells)
+             if i not in used and c.contains(pt)
+             and (not area_sf or 0.4 * area_sf <= c.area <= 2.5 * area_sf)),
+            None,
+        )
         if idx is not None:
             used.add(idx)
             c = cells[idx]
@@ -600,17 +612,18 @@ def _room_type_from_furniture(items: list[FurnitureItem]) -> str:
 
 
 def _infer_room_types(rooms: list[Room], furniture: list[FurnitureItem]) -> None:
-    """Give each still-unknown room a functional type from the furniture assigned to it, so a
-    label-less (or generically-labeled) plan still colour-codes: open field vs meeting vs office
-    vs collaboration. Rooms that already carry a type from their text label are left untouched."""
-    by_room: dict[str, list[FurnitureItem]] = {}
-    for f in furniture:
-        if f.room_id:
-            by_room.setdefault(f.room_id, []).append(f)
+    """Give each still-unknown room a functional type from the furniture GEOMETRICALLY inside its
+    boundary, so a label-less (or generically-labeled) plan still colour-codes: open field vs
+    meeting vs office vs collaboration. Uses polygon containment, not the room_id assignment — that
+    falls back to nearest-centre and can dump a whole floor of desks into one small room, which
+    would mis-type everything. Rooms already typed from a text label are left untouched; an empty
+    enclosed cell stays unknown (drawn neutral) rather than being guessed."""
+    centers = [(f, Point(f.x + f.w / 2, f.y + f.h / 2)) for f in furniture]
     for r in rooms:
-        if r.type != "unknown":
+        if r.type != "unknown" or len(r.polygon) < 3:
             continue
-        items = by_room.get(r.id)
+        poly = Polygon(r.polygon)
+        items = [f for f, c in centers if poly.contains(c)]
         if items:
             r.type = _room_type_from_furniture(items)
 

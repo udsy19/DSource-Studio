@@ -66,11 +66,13 @@
   --room-fill:         rgba(26, 24, 19, 0.035);
   --room-line:         rgba(26, 24, 19, 0.16);
 
-  /* room family tints — distinct hues at a legible weight, so the families read apart on the plan */
-  --room-office:       rgba(150, 140, 120, 0.34);   /* private office — warm sand */
-  --room-meeting:      rgba(86, 138, 156, 0.34);    /* meeting / conference — slate blue */
-  --room-collab:       rgba(198, 116, 78, 0.30);    /* open / collaboration — terracotta */
-  --room-amenity:      rgba(120, 156, 110, 0.32);   /* amenity / service — sage */
+  /* room family tints — the open field is a quiet neutral so the ENCLOSED rooms carry the colour
+     (distinct hues at a legible weight), the way a real space plan reads. */
+  --room-open:         rgba(146, 140, 128, 0.10);   /* open workstation field / circulation — recedes */
+  --room-office:       rgba(196, 154, 92, 0.36);    /* private office — ochre */
+  --room-meeting:      rgba(86, 138, 156, 0.38);    /* meeting / conference — slate blue */
+  --room-collab:       rgba(198, 116, 78, 0.36);    /* collaboration / breakout — terracotta */
+  --room-amenity:      rgba(120, 156, 110, 0.36);   /* amenity / service — sage */
 
   /* furniture footprints by category — quiet ink family, one soft warm tint for seating */
   --furn-seat:         #b98a72;   /* chair / sofa / stool — soft terracotta, not full accent */

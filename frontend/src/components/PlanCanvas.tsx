@@ -41,17 +41,19 @@ type Props = FitProps | LayoutProps;
 // Program family → the quiet floor tint that distinguishes office / meeting / collaboration /
 // amenity rooms within the warm-paper palette. Shared by both renderers (FitPlan carries the
 // family explicitly; LayoutPlan resolves it from the room's type via roomFill).
-type RoomFamily = "office" | "meeting" | "collab" | "amenity";
+type RoomFamily = "open" | "office" | "meeting" | "collab" | "amenity";
 const FAMILY_FILL: Record<RoomFamily, string> = {
+  open: "--room-open",       // open workstation field + circulation — a quiet neutral it recedes to
   office: "--room-office",
   meeting: "--room-meeting",
   collab: "--room-collab",
   amenity: "--room-amenity",
 };
 const FAMILY_LABEL: Record<RoomFamily, string> = {
+  open: "Open plan",
   office: "Office",
   meeting: "Meeting",
-  collab: "Open / collab",
+  collab: "Collab",
   amenity: "Amenity",
 };
 
@@ -83,10 +85,10 @@ function roomFamilyFill(label: string): string {
 // label-less plan, its furniture mix), so colour by type first; fall back to label inference,
 // then a neutral fill for circulation/core/genuinely-unknown space.
 const ROOM_TYPE_FAMILY: Record<string, RoomFamily> = {
+  open: "open",         // the workstation field / circulation — quiet, so enclosed rooms carry colour
   office: "office",
   meeting: "meeting",
   huddle: "meeting",
-  open: "collab",
   collab: "collab",
   reception: "collab",
   kitchen: "amenity",
