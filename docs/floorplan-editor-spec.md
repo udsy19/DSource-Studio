@@ -95,3 +95,19 @@ The engine principle holds: **the structured scene is the source of truth; AI is
 ## Working method
 
 Per `CLAUDE.md`: one phase at a time, small commits, tests green after each, stop for approval before starting the next phase. Every new module gets tests; bug fixes get a regression test first.
+
+---
+
+## Shipped (branch `floorplan-editor`)
+
+Reading the actual code corrected several spec assumptions — the codebase already had more than the initial map suggested, so each phase reused rather than rebuilt.
+
+**Phase 1 — CAD → coloured rooms.** Room detection ALREADY existed (`cad_reader.py:_read_rooms`, a mask-subtraction that deliberately avoids `polygonize` on double-line walls). No `room_detect.py` created. Delta: unlabeled rooms fell to `type="unknown"` (no colour) — added `_infer_room_types` (reuses `settings.infer_setting_type`) + frontend `roomFill` colours by `type`. `+ test_cad_reader::test_unlabeled_room_type_inferred_from_furniture`.
+
+**Phase 2 — editable canvas.** Furniture + room *swap* already existed. Delta: backend `/api/layout/metrics` (`ingestion/layout_metrics.py`, tested) + frontend drag-to-move, delete, and a live metrics strip. **Resize / room-polygon reshape DEFERRED** (ambiguous for non-rectangular detected polygons; needs browser verification). Drag uses `getScreenCTM`; builds + typechecks but was **not browser-verified** in the build env.
+
+**Phase 3 — program + colour.** The ± quantity-stepper program editor already existed. Delta: a room-family colour **legend** + a live program tally. Kept the warm-paper/terracotta design system (NOT qbiq's blue/yellow/green — design-system rule). Density/headcount surface post-generate (they need plate area).
+
+**Phase 4 — finishes → render + export.** Export set (PDF/Excel/IFC/DXF) already achieved qbiq parity; **Revit `.RVT` deferred**. Delta: backend `build_render_prompt(finishes)` (tested) + `finishes` on the render request; frontend finishes selector + Visualize (rasterizes the plan SVG, inlining `:root` CSS vars) → render overlay, gated on `/api/render/status`. Render itself needs a provider key + a browser to verify end-to-end.
+
+**Deferred (logged, not built):** furniture/room resize, room-polygon reshape, Revit export, ML-scored optimization. **Not browser-verified in this env:** the drag interaction and the finishes render round-trip.
