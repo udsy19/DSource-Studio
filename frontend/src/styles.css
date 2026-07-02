@@ -810,3 +810,16 @@ header.bar {
 /* resume-editing affordance on a project card (shown when it has saved edited designs) */
 .project-resume { display: block; margin: 8px 0 0 18px; font: 500 12px/1 var(--sans); color: var(--accent); text-align: left; }
 .project-resume:hover { text-decoration: underline; }
+
+/* program starter templates — one click seeds a saved program state */
+.program-templates { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.tmpl-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; text-align: left;
+  background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r1); cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+.tmpl-card:hover { border-color: var(--accent-line); background: var(--paper-2); }
+.tmpl-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.tmpl-name { font-size: 12px; font-weight: 600; color: var(--ink); letter-spacing: 0.01em; }
+.tmpl-note { font-family: var(--serif); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* program-mix bar — family proportions of the requested program */
+.mix-bar { display: flex; height: 8px; border-radius: var(--r-pill); overflow: hidden; margin-top: 10px; gap: 1px; }
+.mix-seg { min-width: 3px; }

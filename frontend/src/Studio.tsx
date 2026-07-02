@@ -293,6 +293,60 @@ const DEFAULT_DETAILED: DetailedProgram = {
   desk_depth_cm: 70,
 };
 
+// Starter templates — a "template" is just a saved program state (qbiq's model). Steelcase-informed
+// room mixes for common office sizes; one click seeds the Detailed program, then the user tweaks.
+const PROGRAM_TEMPLATES: { name: string; note: string; program: DetailedProgram }[] = [
+  {
+    name: "Small office",
+    note: "~15 seats",
+    program: {
+      rooms: [
+        { type: "office_medium", count: 2, placement: "window" },
+        { type: "conf_small", count: 1, placement: "flexible" },
+        { type: "huddle", count: 1, placement: "core" },
+        { type: "phone_booth", count: 1, placement: "core" },
+      ],
+      desk_type: "workstations", desk_width_cm: 140, desk_depth_cm: 70,
+    },
+  },
+  {
+    name: "Mid-size",
+    note: "~40 seats",
+    program: {
+      rooms: [
+        { type: "office_medium", count: 4, placement: "window" },
+        { type: "office_small", count: 2, placement: "window" },
+        { type: "conf_medium", count: 1, placement: "flexible" },
+        { type: "conf_small", count: 2, placement: "flexible" },
+        { type: "huddle", count: 2, placement: "core" },
+        { type: "phone_booth", count: 2, placement: "core" },
+        { type: "kitchen", count: 1, placement: "flexible" },
+      ],
+      desk_type: "workstations", desk_width_cm: 140, desk_depth_cm: 70,
+    },
+  },
+  {
+    name: "Large office",
+    note: "~90 seats",
+    program: {
+      rooms: [
+        { type: "office_exec", count: 1, placement: "window" },
+        { type: "office_large", count: 2, placement: "window" },
+        { type: "office_medium", count: 6, placement: "window" },
+        { type: "conf_board", count: 1, placement: "flexible" },
+        { type: "conf_large", count: 1, placement: "flexible" },
+        { type: "conf_medium", count: 2, placement: "flexible" },
+        { type: "conf_small", count: 3, placement: "flexible" },
+        { type: "huddle", count: 3, placement: "core" },
+        { type: "phone_booth", count: 3, placement: "core" },
+        { type: "reception", count: 1, placement: "window" },
+        { type: "kitchen", count: 1, placement: "flexible" },
+      ],
+      desk_type: "workstations", desk_width_cm: 140, desk_depth_cm: 70,
+    },
+  },
+];
+
 // ── swap geometry ──
 // Recognized furniture a room swap places — mirrors the backend _SLOT_CATS so Read-mode swaps and
 // the generator agree on what a room contains (the rest are CET sub-component blocks / glass).
@@ -2214,9 +2268,29 @@ function DetailedForm({
   })).filter((f) => f.count > 0);
   const totalRooms = familyTally.reduce((n, f) => n + f.count, 0);
 
+  // Family → room-family tint, for the space-mix bar (mirrors the plan's room colours).
+  const familyTint: Record<string, string> = {
+    Offices: "--room-office", "Team rooms": "--room-meeting", Conference: "--room-meeting",
+    Collaboration: "--room-collab", Amenities: "--room-amenity",
+  };
   return (
     <div className="brief">
-      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Program · rooms</Eyebrow>
+      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Start from a template</Eyebrow>
+      <div className="program-templates" role="group" aria-label="Program templates">
+        {PROGRAM_TEMPLATES.map((t) => (
+          <button
+            key={t.name}
+            type="button"
+            className="tmpl-card"
+            onClick={() => onChange(t.program)}
+          >
+            <span className="tmpl-name">{t.name}</span>
+            <span className="tmpl-note">{t.note}</span>
+          </button>
+        ))}
+      </div>
+
+      <Eyebrow style={{ display: "block", margin: "18px 0 12px" }}>Program · rooms</Eyebrow>
 
       <div className="program-summary" role="group" aria-label="Requested program">
         <span className="program-summary-total">{totalRooms}</span>
@@ -2227,6 +2301,19 @@ function DetailedForm({
           </span>
         ))}
       </div>
+
+      {totalRooms > 0 && (
+        <div className="mix-bar" role="img" aria-label={`Program mix: ${familyTally.map((f) => `${f.family} ${f.count}`).join(", ")}`}>
+          {familyTally.map((f) => (
+            <span
+              key={f.family}
+              className="mix-seg"
+              style={{ flexGrow: f.count, background: `var(${familyTint[f.family] ?? "--room-open"})` }}
+              title={`${f.family} · ${f.count}`}
+            />
+          ))}
+        </div>
+      )}
 
       {ROOM_CATALOG.map(({ family, rooms }) => (
         <div className="room-family" key={family}>
