@@ -339,10 +339,17 @@ header.bar {
 
 /* detailed-mode room requests — catalog grouped by family, count stepper + placement per type */
 .room-family { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
+.room-family-head { display: flex; align-items: center; gap: var(--s3); }
+.fam-thumb { flex: 0 0 auto; width: 52px; height: 38px; display: flex; align-items: center;
+  justify-content: center; border: 1px solid var(--line-2); border-radius: var(--r0);
+  background: var(--paper-2); overflow: hidden; }
+.fam-thumb .arr-thumb { width: 100%; height: 100%; }
+.room-family-meta { display: flex; flex-direction: column; gap: 3px; }
 .room-family-label {
   font: 600 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted);
 }
+.room-family-cap { font: 400 11px/1 var(--serif); color: var(--muted); }
 .room-reqs { display: flex; flex-direction: column; gap: var(--s3); }
 .room-req { display: flex; flex-direction: column; gap: var(--s2); }
 .room-req[data-active="false"] .brief-label { color: var(--muted); }
@@ -823,3 +830,12 @@ header.bar {
 /* program-mix bar — family proportions of the requested program */
 .mix-bar { display: flex; height: 8px; border-radius: var(--r-pill); overflow: hidden; margin-top: 10px; gap: 1px; }
 .mix-seg { min-width: 3px; }
+
+/* Generate-from-mix — headcount + %-enclosed slider feed the heuristic that fills the program. */
+.mix-gen { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; }
+.mix-gen-field { display: flex; flex-direction: column; gap: 5px; }
+.mix-gen-slider { flex: 1 1 160px; }
+.mix-gen-num { width: 68px; padding: 7px 9px; border: 1px solid var(--line-2); border-radius: var(--r0);
+  background: var(--paper); font: 400 15px/1 var(--serif); color: var(--ink); }
+.mix-gen-num:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.mix-gen-slider input[type="range"] { width: 100%; accent-color: var(--accent); }

@@ -32,7 +32,7 @@ import { furnitureSymbol } from "./components/furnitureSymbols";
 import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
 import SceneEditor from "./components/SceneEditor";
 import SpaceView from "./components/SpaceView";
-import { Callout, Eyebrow, Segmented } from "./design/ui";
+import { Button, Callout, Eyebrow, Segmented } from "./design/ui";
 import WizardStepper, { type WizardStep } from "./components/WizardStepper";
 import { layoutFromFit, rotatePoint } from "./fitToLayout";
 import { listEditedDesigns, type ProjectStatus, type WorkflowProject } from "./workflowProjects";
@@ -2273,6 +2273,38 @@ function DetailedForm({
     Offices: "--room-office", "Team rooms": "--room-meeting", Conference: "--room-meeting",
     Collaboration: "--room-collab", Amenities: "--room-amenity",
   };
+  // Family → the plate library pool that furnishes it (Amenities have no dedicated pool). Fetched once
+  // so each family card can preview a representative plate + its capacity range — the SAME plates the
+  // editor's Layouts panel offers, so the program is visibly catalog-backed.
+  const familySettingType: Record<string, string> = {
+    Offices: "private_office", "Team rooms": "meeting_room", Conference: "meeting_room",
+    Collaboration: "collaboration",
+  };
+  const [pools, setPools] = useState<Record<string, CatalogSetting[]>>({});
+  useEffect(() => {
+    let live = true;
+    const types = [...new Set(Object.values(familySettingType))];
+    Promise.all(
+      types.map((t) => fetchSettings(t, 9999, 9999).then((s) => [t, s] as const).catch(() => [t, [] as CatalogSetting[]] as const)),
+    ).then((entries) => live && setPools(Object.fromEntries(entries)));
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Generate-from-mix: seed the whole program from a headcount + how enclosed it should be — a
+  // planning heuristic (roughly 1 meeting/15, 1 huddle/20, 1 booth/25 people), then the user tweaks.
+  const [headcount, setHeadcount] = useState(40);
+  const [enclosedPct, setEnclosedPct] = useState(20);
+  const fillFromMix = () => {
+    const rooms: { type: RoomType; count: number; placement: Placement }[] = [];
+    const offices = Math.round((headcount * enclosedPct) / 100);
+    if (offices > 0) rooms.push({ type: "office_medium", count: offices, placement: "window" });
+    rooms.push({ type: "conf_small", count: Math.max(1, Math.round(headcount / 15)), placement: "flexible" });
+    rooms.push({ type: "huddle", count: Math.max(1, Math.round(headcount / 20)), placement: "core" });
+    rooms.push({ type: "phone_booth", count: Math.max(1, Math.round(headcount / 25)), placement: "core" });
+    if (headcount >= 20) rooms.push({ type: "kitchen", count: 1, placement: "flexible" });
+    onChange({ ...program, rooms });
+  };
   return (
     <div className="brief">
       <Eyebrow style={{ display: "block", marginBottom: 12 }}>Start from a template</Eyebrow>
@@ -2288,6 +2320,33 @@ function DetailedForm({
             <span className="tmpl-note">{t.note}</span>
           </button>
         ))}
+      </div>
+
+      <Eyebrow style={{ display: "block", margin: "18px 0 10px" }}>Or generate from a headcount</Eyebrow>
+      <div className="mix-gen" role="group" aria-label="Generate program from headcount">
+        <label className="mix-gen-field">
+          <span className="brief-label">People</span>
+          <input
+            type="number"
+            min={1}
+            max={500}
+            className="mix-gen-num"
+            value={headcount}
+            onChange={(e) => setHeadcount(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+          />
+        </label>
+        <label className="mix-gen-field mix-gen-slider">
+          <span className="brief-label">Enclosed offices · {enclosedPct}%</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={enclosedPct}
+            onChange={(e) => setEnclosedPct(Number(e.target.value))}
+          />
+        </label>
+        <Button variant="quiet" onClick={fillFromMix}>Fill program →</Button>
       </div>
 
       <Eyebrow style={{ display: "block", margin: "18px 0 12px" }}>Program · rooms</Eyebrow>
@@ -2315,9 +2374,23 @@ function DetailedForm({
         </div>
       )}
 
-      {ROOM_CATALOG.map(({ family, rooms }) => (
+      {ROOM_CATALOG.map(({ family, rooms }) => {
+        const pool = pools[familySettingType[family]] ?? [];
+        const caps = pool.map((p) => p.capacity).filter((c) => c > 0);
+        const rep = pool.length ? pool[Math.floor(pool.length / 2)] : null; // median-ish plate for the preview
+        return (
         <div className="room-family" key={family}>
-          <span className="room-family-label">{family}</span>
+          <div className="room-family-head">
+            {rep && <span className="fam-thumb"><ArrangementThumb setting={rep} /></span>}
+            <div className="room-family-meta">
+              <span className="room-family-label">{family}</span>
+              {caps.length > 0 && (
+                <span className="room-family-cap">
+                  {Math.min(...caps)}–{Math.max(...caps)} seats · {pool.length} plates
+                </span>
+              )}
+            </div>
+          </div>
           <div className="room-reqs">
             {rooms.map(({ type, label, placement }) => {
               const room = program.rooms.find((r) => r.type === type);
@@ -2382,7 +2455,8 @@ function DetailedForm({
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       <div className="brief-field">
         <span className="brief-label">Desk type</span>
