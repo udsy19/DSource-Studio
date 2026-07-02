@@ -1054,6 +1054,7 @@ export default function Studio({
   const viewToggle = (
     <div className="stage-tools">
       <Segmented
+        label="View mode"
         value={view}
         onChange={setView}
         options={[
@@ -1251,6 +1252,7 @@ export default function Studio({
             <Eyebrow style={{ display: "block", margin: "16px 0 8px" }}>Swap furnishing</Eyebrow>
           </div>
           <Segmented
+            label="Furnishing type"
             options={[
               { value: "layouts", label: "Layouts" },
               { value: "items", label: "Items" },
@@ -1346,19 +1348,22 @@ export default function Studio({
         <>
           <hr className="ds-rule" />
           <div>
-            <Eyebrow style={{ display: "block", marginBottom: 12 }}>Rooms · {rooms.length}</Eyebrow>
+            <Eyebrow style={{ display: "block", marginBottom: 12 }}>Labelled rooms · {rooms.length}</Eyebrow>
             <div className="rooms-list">
-              {rooms.map((r) => (
-                <div className="room-row" key={r.id}>
-                  <span className="rm-label">
-                    {r.label}
-                    {r.type && r.type !== "unknown" && (
-                      <span className="rm-type">{ROOM_TYPE_LABEL[r.type] ?? r.type}</span>
-                    )}
-                  </span>
-                  <span className="rm-area">{r.area_sf ? `${num(r.area_sf)} sf` : "—"}</span>
-                </div>
-              ))}
+              {rooms.map((r) => {
+                const typeLabel =
+                  r.type && r.type !== "unknown" ? ROOM_TYPE_LABEL[r.type] ?? r.type : null;
+                const showType = !!typeLabel && typeLabel.toLowerCase() !== (r.label ?? "").toLowerCase();
+                return (
+                  <div className="room-row" key={r.id}>
+                    <span className="rm-label">
+                      {r.label}
+                      {showType && <> <span className="rm-type">{typeLabel}</span></>}
+                    </span>
+                    <span className="rm-area">{r.area_sf ? `${num(r.area_sf)} sf` : "—"}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </>
@@ -1425,6 +1430,7 @@ export default function Studio({
             <div className="brief-field" style={{ marginTop: 16 }}>
               <span className="brief-label">Units</span>
               <Segmented
+                label="Units"
                 value={units}
                 onChange={setUnits}
                 options={[
@@ -1455,6 +1461,7 @@ export default function Studio({
                       key={m.type}
                       type="button"
                       className={`marker-chip${pendingMarker?.type === m.type ? " is-active" : ""}`}
+                      aria-pressed={pendingMarker?.type === m.type}
                       onClick={() => { setDrawingArea(false); setPendingMarker(pendingMarker?.type === m.type ? null : m); }}
                     >
                       {m.label}
@@ -1501,6 +1508,7 @@ export default function Studio({
                   <Eyebrow>Walls</Eyebrow>
                 </div>
                 <Segmented
+                  label="Walls"
                   value={keepWalls ? "keep" : "heal"}
                   onChange={(v) => setKeepWalls(v === "keep")}
                   options={[
@@ -1536,6 +1544,7 @@ export default function Studio({
           <>
             <div className="brief-field">
               <Segmented
+                label="Generation mode"
                 value={genMode}
                 onChange={(m) => { setGenMode(m); setErr(null); }}
                 options={[
@@ -1779,7 +1788,7 @@ function LayoutMetricsStrip({ m }: { m: LayoutMetrics }) {
     { label: "seats", value: String(m.seats) },
     { label: "open", value: String(m.open_seats) },
     { label: "enclosed", value: String(m.enclosed_seats) },
-    { label: "rooms", value: String(m.rooms) },
+    { label: "closed rooms", value: String(m.rooms) },
     { label: "usable", value: `${num(m.usable_sf)} sf` },
     { label: "density", value: m.seats ? `${num(m.density_sf_per_person)} sf/seat` : "—" },
   ];
@@ -1906,6 +1915,7 @@ function FinishesPanel({
         <div className="brief-field">
           <span className="brief-label">Apply to</span>
           <Segmented
+            label="Apply finishes to"
             value={scope}
             onChange={onScope}
             options={[{ value: "", label: "Whole scene" }, ...scopes.map((s) => ({ value: s, label: s }))]}
@@ -1916,6 +1926,7 @@ function FinishesPanel({
         <div className="brief-field" key={f.key}>
           <span className="brief-label">{f.label}</span>
           <Segmented
+            label={f.label}
             value={shown[f.key] ?? ""}
             onChange={(v) => (refining ? onEditSurface(f.key, v, scope) : onChange({ ...finishes, [f.key]: v }))}
             options={f.options}
@@ -2006,6 +2017,7 @@ function ConceptForm({
       <div className="brief-field">
         <span className="brief-label">Planning style</span>
         <Segmented
+          label="Planning style"
           value={concept.planning_style}
           onChange={(v) => onChange({ ...concept, planning_style: v })}
           options={PLANNING_STYLES}
@@ -2015,6 +2027,7 @@ function ConceptForm({
       <div className="brief-field">
         <span className="brief-label">Desk type</span>
         <Segmented
+          label="Desk type"
           value={concept.desk_type}
           onChange={(v) => onChange({ ...concept, desk_type: v })}
           options={DESK_TYPES}
@@ -2024,6 +2037,7 @@ function ConceptForm({
       <div className="brief-field">
         <span className="brief-label">Desk size · cm</span>
         <Segmented
+          label="Desk size"
           value={sizeValue}
           onChange={(v) => {
             const s = DESK_SIZES.find((d) => d.value === v);
@@ -2167,6 +2181,7 @@ function DetailedForm({
                   {count > 0 && (
                     <>
                       <Segmented
+                        label={`${label} placement`}
                         value={room?.placement ?? placement}
                         onChange={(v) => setPlacement(type, v)}
                         options={PLACEMENTS}
@@ -2201,6 +2216,7 @@ function DetailedForm({
       <div className="brief-field">
         <span className="brief-label">Desk type</span>
         <Segmented
+          label="Desk type"
           value={program.desk_type}
           onChange={(v) => onChange({ ...program, desk_type: v })}
           options={DESK_TYPES}
@@ -2210,6 +2226,7 @@ function DetailedForm({
       <div className="brief-field">
         <span className="brief-label">Desk size · cm</span>
         <Segmented
+          label="Desk size"
           value={sizeValue}
           onChange={(v) => {
             const s = DESK_SIZES.find((d) => d.value === v);
@@ -2236,13 +2253,20 @@ function GenerateButton({
   hasVersions: boolean;
 }) {
   return (
-    <button
-      className="ds-btn ds-btn--primary brief-go"
-      onClick={() => file && onGenerate(file)}
-      disabled={!file || busy}
-    >
-      {busy ? "Generating…" : hasVersions ? "Regenerate versions" : "Generate versions"}
-    </button>
+    <>
+      <button
+        type="button"
+        className="ds-btn ds-btn--primary brief-go"
+        onClick={() => file && onGenerate(file)}
+        disabled={!file || busy}
+        aria-busy={busy}
+      >
+        {busy ? "Generating…" : hasVersions ? "Regenerate versions" : "Generate versions"}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {busy ? "Generating test-fits…" : ""}
+      </span>
+    </>
   );
 }
 
@@ -2391,27 +2415,28 @@ function VersionCard({
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="listitem"
-      className={`version-card ${selected ? "is-selected" : ""}`}
-      aria-pressed={selected}
-      onClick={onSelect}
-    >
-      <span className="version-thumb">
-        <PlanCanvas plan={plan} instances={alt.testfit.instances} compact />
-      </span>
-      <span className="version-meta">
-        <span className="version-seats">
-          <span className="version-seats-n">{num(alt.metrics.seats)}</span>
-          <span className="version-seats-k">seats</span>
+    <li className="version-item">
+      <button
+        type="button"
+        className={`version-card ${selected ? "is-selected" : ""}`}
+        aria-pressed={selected}
+        onClick={onSelect}
+      >
+        <span className="version-thumb">
+          <PlanCanvas plan={plan} instances={alt.testfit.instances} compact />
         </span>
-        <MetricRow label="Density" value={`${num(alt.metrics.density_sf_per_person)} sf/p`} />
-        <MetricRow label="Daylight" value={pct(alt.metrics.daylight_pct)} />
-        <MetricRow label="Privacy" value={pct(alt.metrics.privacy_pct)} />
-        <MetricRow label="Efficiency" value={pct(alt.metrics.efficiency_pct)} />
-      </span>
-    </button>
+        <span className="version-meta">
+          <span className="version-seats">
+            <span className="version-seats-n">{num(alt.metrics.seats)}</span>
+            <span className="version-seats-k">seats</span>
+          </span>
+          <MetricRow label="Density" value={`${num(alt.metrics.density_sf_per_person)} sf/p`} />
+          <MetricRow label="Daylight" value={pct(alt.metrics.daylight_pct)} />
+          <MetricRow label="Privacy" value={pct(alt.metrics.privacy_pct)} />
+          <MetricRow label="Efficiency" value={pct(alt.metrics.efficiency_pct)} />
+        </span>
+      </button>
+    </li>
   );
 }
 

@@ -15,17 +15,27 @@ type RGB = [number, number, number];
 
 // ── warm paper/ink palette ──
 // NOTE: numeric RGB tuples the isometric shader lightens/darkens (can't do that math on a CSS var
-// at draw time). PAPER/INK mirror tokens.css --paper/--ink; the tints are derived from --paper-3 /
-// --line / --furn-*. Keep in sync with tokens.css (unifies with the 2D render path in Phase D).
-const PAPER = "#f4f1ea";
+// at draw time), derived from --paper-3 / --line / --furn-*. The flat string colours (paper, ink,
+// edge, glass, glass-edge) are read from tokens.css at runtime — see `readPalette` — so they never
+// drift from the design system.
 const FLOOR: RGB = [232, 225, 211];
 const WALL: RGB = [225, 217, 201];
 const FURN_SEAT: RGB = [201, 169, 139]; // seating leans ~12% toward the terracotta accent
 const FURN_SURF: RGB = [217, 204, 180]; // tables / desks / casework
-const INK = "#1a1813";
-const EDGE = "rgba(26,24,19,0.32)";
-const GLASS = "rgba(150,171,186,0.34)"; // meeting-room glazing
-const GLASS_EDGE = "rgba(120,140,158,0.7)";
+
+type Palette = { paper: string; ink: string; edge: string; glass: string; glassEdge: string };
+
+function readPalette(): Palette {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
+  return {
+    paper: v("--paper"),
+    ink: v("--ink"),
+    edge: v("--axon-edge"),
+    glass: v("--axon-glass"),
+    glassEdge: v("--axon-glass-edge"),
+  };
+}
 
 const WALL_H = 8.5; // ft — perimeter
 const PARTITION_H = 4.5; // ft — interior room walls, low (dollhouse) so furniture stays visible
@@ -278,7 +288,7 @@ function sceneFromPlan(plan: Plan, instances: Instance[], geo: Geo): Scene {
 // ── projection + shading into paint-ready faces ──
 type Face = { pts: Pt[]; fill: string; stroke?: string; depth: number; order: number; lines?: Pt[][]; glass?: boolean };
 
-function buildFaces(scene: Scene, q: number) {
+function buildFaces(scene: Scene, q: number, palette: Palette) {
   const { center } = scene;
   const faces: Face[] = [];
   const shadows: Pt[][] = [];
@@ -298,8 +308,8 @@ function buildFaces(scene: Scene, q: number) {
     if (w.cut && (sa[0] + sa[1] + sb[0] + sb[1]) / 2 > centerDepth + 0.5) continue;
     faces.push({
       pts: [iso(sa[0], sa[1], 0), iso(sb[0], sb[1], 0), iso(sb[0], sb[1], w.h), iso(sa[0], sa[1], w.h)],
-      fill: w.glass ? GLASS : shade(WALL, sideShade(sa, sb)),
-      stroke: w.glass ? GLASS_EDGE : undefined,
+      fill: w.glass ? palette.glass : shade(WALL, sideShade(sa, sb)),
+      stroke: w.glass ? palette.glassEdge : undefined,
       depth: depthOf([sa, sb]),
       order: 0,
       glass: w.glass,
@@ -322,7 +332,7 @@ function buildFaces(scene: Scene, q: number) {
     for (const f of sides.slice(-2)) faces.push({ pts: f.pts, fill: f.fill, depth: d, order: 1 });
     const top = spun.map((p) => iso(p[0], p[1], it.z1));
     const lines = it.detail?.map((ring) => ring.map((p) => iso(...(spin(p, center, q) as Pt), it.z1)));
-    faces.push({ pts: top, fill: shade(it.base, 1.08), stroke: EDGE, depth: d, order: 2, lines });
+    faces.push({ pts: top, fill: shade(it.base, 1.08), stroke: palette.edge, depth: d, order: 2, lines });
   }
 
   faces.sort((a, b) => a.depth - b.depth || a.order - b.order);
@@ -365,11 +375,15 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
     };
   }, [slottedSkus]);
 
+  const palette = useMemo(readPalette, []);
   const scene = useMemo(
     () => ("layout" in props ? sceneFromLayout(props.layout) : sceneFromPlan(props.plan, props.instances, geo)),
     [props, geo],
   );
-  const { faces, floor, zones, shadows, floorLines } = useMemo(() => buildFaces(scene, q), [scene, q]);
+  const { faces, floor, zones, shadows, floorLines } = useMemo(
+    () => buildFaces(scene, q, palette),
+    [scene, q, palette],
+  );
 
   const all = [floor, ...faces.map((f) => f.pts)].flat();
   const xs = all.map((p) => p[0]);
@@ -393,7 +407,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
       canvas.width = W;
       canvas.height = Math.round((W * svg.clientHeight) / Math.max(svg.clientWidth, 1)) || W;
       const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = PAPER;
+      ctx.fillStyle = palette.paper;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const shot = canvas.toDataURL("image/jpeg", 0.85);
@@ -422,7 +436,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
           <polygon key={`sh${i}`} points={ptsStr(s)} fill="rgba(26,24,19,0.10)" />
         ))}
         {floorLines.map((line, i) => (
-          <polyline key={`d${i}`} points={ptsStr(line)} fill="none" stroke={INK} strokeWidth={0.3}
+          <polyline key={`d${i}`} points={ptsStr(line)} fill="none" stroke={palette.ink} strokeWidth={0.3}
             strokeLinejoin="round" strokeLinecap="round" opacity={0.5} />
         ))}
         {faces.map((f, i) => (
@@ -430,7 +444,7 @@ export default function SpaceView(props: { layout: ExtractedLayout } | { plan: P
             <polygon points={ptsStr(f.pts)} fill={f.fill} stroke={f.stroke ?? "none"}
               strokeWidth={f.glass ? 0.5 : 0.35} strokeLinejoin="round" />
             {f.lines?.map((ring, j) => (
-              <polyline key={j} points={ptsStr(ring)} fill="none" stroke={INK} strokeWidth={0.3}
+              <polyline key={j} points={ptsStr(ring)} fill="none" stroke={palette.ink} strokeWidth={0.3}
                 strokeLinejoin="round" opacity={0.45} />
             ))}
           </g>

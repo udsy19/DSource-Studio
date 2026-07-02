@@ -35,7 +35,7 @@
     border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 .ds-btn:active { transform: translateY(1px); }
-.ds-btn--primary { background: var(--accent); color: #fff8f2; }
+.ds-btn--primary { background: var(--accent); color: var(--on-accent); }
 .ds-btn--primary:hover { background: var(--accent-press); }
 .ds-btn--ghost { background: transparent; color: var(--ink); border-color: var(--line-2); }
 .ds-btn--ghost:hover { border-color: var(--ink); }

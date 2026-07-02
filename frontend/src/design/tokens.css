@@ -12,8 +12,8 @@
   /* ── ink (near-black, warm) ── */
   --ink:      #1a1813;
   --ink-2:    #3c382f;
-  --muted:    #97917f;
-  --faint:    #b9b3a3;
+  --muted:    #6f6a5e;   /* warm-grey, 4.78:1 on --paper (WCAG AA) */
+  --faint:    #726d61;   /* warm-grey, 4.57:1 on --paper (WCAG AA) */
 
   /* ── hairlines ── */
   --line:     #e2ddd0;
@@ -24,6 +24,10 @@
   --accent-press:  #9c4627;
   --accent-soft:   rgba(184, 85, 47, 0.10);
   --accent-line:   rgba(184, 85, 47, 0.42);
+  --on-accent:     #fff8f2;   /* warm off-white text/icon on the accent fill */
+
+  /* ── scrim (warm ink veil behind overlays + modals) ── */
+  --scrim:         rgba(26, 24, 19, 0.42);
 
   /* ── type ── */
   --serif: "Fraunces", Georgia, "Times New Roman", serif;     /* editorial display + numerals */
@@ -74,6 +78,10 @@
   --room-collab:       rgba(198, 116, 78, 0.36);    /* collaboration / breakout — terracotta */
   --room-amenity:      rgba(120, 156, 110, 0.36);   /* amenity / service — sage */
 
+  /* back-match confidence tags — warm in-system hues (sage = exact, ochre = close) */
+  --match-exact:       #789c6e;   /* exact catalog match — sage, from the amenity family */
+  --match-close:       #c49a5c;   /* close match — ochre, from the office family */
+
   /* furniture footprints by category — quiet ink family, one soft warm tint for seating */
   --furn-seat:         #b98a72;   /* chair / sofa / stool — soft terracotta, not full accent */
   --furn-work:         #8a8478;   /* desk / workstation / table — warm grey */
@@ -101,4 +109,9 @@
   --sheet-frame:       rgba(26, 24, 19, 0.42);   /* thin inner border framing the sheet */
   --poche-edge:        rgba(26, 24, 19, 0.20);   /* drafted hairline on the cut face of wall bands */
   --title-block:       rgba(26, 24, 19, 0.55);   /* title-block border + rule */
+
+  /* ── axonometric "paper model" view — string colours read at runtime (not the RGB tuples the shader lightens) ── */
+  --axon-edge:         rgba(26, 24, 19, 0.32);    /* furniture top-face hairline */
+  --axon-glass:        rgba(150, 171, 186, 0.34); /* meeting-room glazing fill */
+  --axon-glass-edge:   rgba(120, 140, 158, 0.7);  /* glazing edge */
 }

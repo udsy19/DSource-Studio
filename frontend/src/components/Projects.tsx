@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, Eyebrow, Field, Tag } from "../design/ui";
+import { Button, Card, Field, Tag } from "../design/ui";
 import {
   createProject,
   deleteProject,
@@ -41,9 +41,9 @@ export default function Projects({ onOpen }: { onOpen: (p: WorkflowProject) => v
   };
 
   return (
-    <div className="projects">
+    <main className="projects">
       <div className="projects-head">
-        <Eyebrow>My projects</Eyebrow>
+        <h1 className="ds-eyebrow projects-title">My projects</h1>
         {!creating && <Button onClick={() => setCreating(true)}>+ New project</Button>}
       </div>
 
@@ -110,6 +110,6 @@ export default function Projects({ onOpen }: { onOpen: (p: WorkflowProject) => v
           ))}
         </div>
       )}
-    </div>
+    </main>
   );
 }

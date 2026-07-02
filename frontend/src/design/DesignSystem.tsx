@@ -163,6 +163,7 @@ export default function DesignSystem() {
       <section className="ds-section">
         <Eyebrow>Segmented control</Eyebrow>
         <Segmented
+          label="Time range"
           value={seg}
           onChange={setSeg}
           options={[

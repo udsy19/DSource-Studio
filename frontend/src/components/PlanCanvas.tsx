@@ -929,7 +929,7 @@ function LayoutPlan({
                   .join(" ") || undefined
               }
               role={selectable ? "button" : interactive ? "img" : undefined}
-              tabIndex={interactive ? 0 : undefined}
+              tabIndex={selectable ? 0 : undefined}
               aria-pressed={selectable ? selected : undefined}
               aria-label={
                 interactive
@@ -992,7 +992,8 @@ function LayoutPlan({
 
           // only real-SKU items (f.model) can be selected; wire interaction when a handler is supplied
           const k = furnitureKey(f);
-          const selectable = !!f.model && !!onSelectFurniture;
+          const selectable =
+            !!f.model && !!onSelectFurniture && f.category !== "panel" && f.category !== "mullion";
           const selected = selectable && selectedFurnitureKey === k;
           const dragging = drag?.key === k;
           // live preview: shift by the world delta, expressed in view units (world dy is up → view -dy)
