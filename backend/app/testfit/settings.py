@@ -36,8 +36,10 @@ SLOT_CATS = frozenset({
     "chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter",
 })
 
-# Seating a plate's capacity is counted from — a plate seats what it seats (one item, one seat).
-SEAT_CATS = frozenset({"chair", "stool", "sofa"})
+# Seating a plate's capacity is counted from — a plate seats what it seats (one item, one seat). A
+# workstation IS a seated position, so it counts too: without it, open-plan plates (workstation
+# fields) and desk-based private offices whose task chair is an unclassified CAD block read 0 seats.
+SEAT_CATS = frozenset({"chair", "stool", "sofa", "workstation"})
 
 # Steelcase source categories (manifest `setting_types`) we drop entirely: out of our typology scope.
 _DROP_SOURCE_CATEGORIES = frozenset({"Outdoor", "Work from Home"})
