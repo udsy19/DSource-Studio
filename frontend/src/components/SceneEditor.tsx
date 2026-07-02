@@ -443,6 +443,7 @@ function SceneCanvas({
                 role="button"
                 tabIndex={0}
                 aria-label={`Delete ${it.category}`}
+                onPointerDown={(e) => e.stopPropagation()} // delete, not a canvas pan (pan capture would eat the click)
                 onClick={() => onDeleteItem(sel)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " " || e.key === "Delete" || e.key === "Backspace") {
