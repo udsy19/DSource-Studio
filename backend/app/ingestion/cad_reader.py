@@ -18,6 +18,7 @@ from collections import Counter
 
 import ezdxf.bbox
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
+from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 
 from ..floorplan.dxf_ingest import (
@@ -136,9 +137,13 @@ def read_cad(
     # Rooms must be bounded by the building perimeter too. _synthesize_perimeter appended it to
     # `walls` (not `wall_lines`); without it the open plate edge leaks and every perimeter-adjacent
     # room drops to label-only. Seal it into the room boundaries.
-    room_lines = wall_lines + [LineString(w.points) for w in walls if w.type == "perimeter"]
+    perim_lines = [LineString(w.points) for w in walls if w.type == "perimeter"]
+    room_lines = wall_lines + perim_lines
+    # The building envelope — used to clip low-confidence furniture-hull rooms so a convex hull of
+    # perimeter-adjacent furniture can't balloon out past the perimeter wall into exterior space.
+    perimeter_poly = _envelope_polygon(perim_lines)
     rooms, room_note = _read_rooms(
-        room_lines, panels, doors, bounds, msp, lf, furniture, user_seeds, keep_walls
+        room_lines, panels, doors, bounds, msp, lf, furniture, user_seeds, keep_walls, perimeter_poly
     )
     if area is not None:
         rooms = [r for r in rooms if r.center is None or area.covers(Point(r.center[0], r.center[1]))]
@@ -556,10 +561,24 @@ _BASIS_CONF = {"walls_closed": 0.9, "label_seeded": 0.6, "furniture_hull": 0.35,
 _HULL_REACH_FT = 13.0  # a label-only room borrows the hull of furniture within this of its label
 
 
+def _envelope_polygon(perim_lines: list[LineString]) -> Polygon | None:
+    """The building footprint from the perimeter walls — the largest polygon they enclose, or their
+    convex hull when they don't close cleanly. Used only to clip low-confidence hull rooms."""
+    if not perim_lines:
+        return None
+    merged = unary_union(perim_lines)
+    polys = list(polygonize(merged))
+    if polys:
+        return max(polys, key=lambda p: p.area)
+    hull = merged.convex_hull
+    return hull if hull.geom_type == "Polygon" else None
+
+
 def _read_rooms(
     wall_lines: list[LineString], panels: list[FurnitureItem], doors: list[Door],
     bounds: tuple[float, float, float, float], msp, lf: float, furniture: list[FurnitureItem],
     user_seeds: list[dict] | None = None, keep_walls: bool = False,
+    perimeter: Polygon | None = None,
 ) -> tuple[list[Room], str | None]:
     """Label-seeded room detection (see room_segment). Boundaries = healed walls + glass partitions
     + door plugs; each room label is a seed. Every returned room records how its boundary was
@@ -614,7 +633,7 @@ def _read_rooms(
     for i, (lx, ly, name, area_sf) in enumerate(labels):
         if i in claimed:
             continue
-        hull = _furniture_hull(lx, ly, centers)
+        hull = _furniture_hull(lx, ly, centers, perimeter)
         if hull is not None:
             htype = _classify_room(name)
             if htype == "unknown":
@@ -645,13 +664,22 @@ def _read_rooms(
     return rooms, note
 
 
-def _furniture_hull(lx: float, ly: float, centers: list[tuple[FurnitureItem, Point]]) -> Polygon | None:
+def _furniture_hull(
+    lx: float, ly: float, centers: list[tuple[FurnitureItem, Point]],
+    perimeter: Polygon | None = None,
+) -> Polygon | None:
     """Convex hull (padded) of the furniture clustered around a label point — a low-confidence zone
-    for a room whose walls never closed, so it still reads on the plan instead of vanishing."""
+    for a room whose walls never closed, so it still reads on the plan instead of vanishing. Clipped
+    to the building envelope so the hull can never spill past the perimeter wall into exterior space."""
     near = [c for _f, c in centers if (c.x - lx) ** 2 + (c.y - ly) ** 2 <= _HULL_REACH_FT ** 2]
     if len(near) < 3:
         return None
     hull = MultiPoint(near).convex_hull.buffer(1.5)
+    if perimeter is not None:
+        clipped = hull.intersection(perimeter)
+        if clipped.geom_type == "MultiPolygon":  # keep the largest piece if clipping split it
+            clipped = max(clipped.geoms, key=lambda p: p.area)
+        hull = clipped
     return hull if hull.geom_type == "Polygon" and hull.area >= _MIN_ROOM_SF else None
 
 

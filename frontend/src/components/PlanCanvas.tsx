@@ -823,8 +823,10 @@ function LayoutPlan({
       const fam = ROOM_TYPE_FAMILY[r.type];
       if (fam) fams.add(fam);
     }
+    // The building interior is tinted the quiet 'open' family (below), so the legend carries it too.
+    if (layout.walls.some((w) => w.type === "perimeter")) fams.add("open");
     return fams;
-  }, [layout.rooms]);
+  }, [layout.rooms, layout.walls]);
 
   // De-conflict room labels: place the largest rooms first and drop any whose (padded) label box
   // would collide with one already placed, so dense office/conference clusters never smear. Rooms
@@ -890,6 +892,15 @@ function LayoutPlan({
       }
       draw={(api) => (
       <>
+        {/* open-plan field — the building interior tinted the quiet 'open' family, so the workstation
+            area reads as colour-coded. Drawn first (behind everything); enclosed rooms paint their
+            own tints on top, so no geometric subtraction is needed. */}
+        {layout.walls
+          .filter((w) => w.type === "perimeter")
+          .map((w, i) => (
+            <polygon key={`open-field-${i}`} points={polyline(w.points)} fill="var(--room-open)" />
+          ))}
+
         {/* rooms — faint filled polygons (where the walls close) with the label + area placed at
             the room's anchor, so every read room shows on the plan even without a closed boundary.
             Closed rooms are hover/focus targets: the shape shifts to the accent and a name + area

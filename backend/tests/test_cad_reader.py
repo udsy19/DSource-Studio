@@ -14,7 +14,15 @@ import os
 import ezdxf
 import pytest
 
-from app.ingestion.cad_reader import _planning_polygon, clip_to_planning_area, read_cad
+from shapely.geometry import Point
+from shapely.geometry import Polygon as ShapelyPolygon
+
+from app.ingestion.cad_reader import (
+    _furniture_hull,
+    _planning_polygon,
+    clip_to_planning_area,
+    read_cad,
+)
 from app.ingestion.schema import Door, FurnitureItem, Wall
 
 REAL_DWG = "/Users/udsy/Downloads/0414-Sheet - 500 - FURNITURE PLAN.dxf.dwg"
@@ -433,3 +441,18 @@ def test_cet_spec_attributes_yield_branded_skutagged_furniture():
     assert c.brand == "Steelcase"
     assert c.model == "436UPH"
     assert "Series 2" in c.block_name
+
+
+def test_furniture_hull_is_clipped_to_the_building_envelope():
+    """A low-confidence furniture-hull room must not spill past the perimeter. Furniture hugging the
+    right wall would, after the +1.5 ft pad, bulge outside x=10; clipping to the envelope pins it in."""
+    centers = [(None, Point(x, y)) for x, y in [(6, 2), (9.5, 2), (9.5, 8), (6, 8)]]
+    perimeter = ShapelyPolygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+
+    unclipped = _furniture_hull(7.75, 5.0, centers)
+    clipped = _furniture_hull(7.75, 5.0, centers, perimeter)
+
+    assert unclipped is not None and unclipped.bounds[2] > 10.0  # would overshoot the wall
+    assert clipped is not None
+    assert clipped.bounds[2] <= 10.0 + 1e-6  # pinned to the envelope
+    assert clipped.within(perimeter.buffer(1e-6))

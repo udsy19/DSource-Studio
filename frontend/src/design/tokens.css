@@ -68,7 +68,7 @@
 
   /* room family tints — the open field is a quiet neutral so the ENCLOSED rooms carry the colour
      (distinct hues at a legible weight), the way a real space plan reads. */
-  --room-open:         rgba(146, 140, 128, 0.10);   /* open workstation field / circulation — recedes */
+  --room-open:         rgba(146, 140, 128, 0.16);   /* open workstation field / circulation — quietest family, still recedes under enclosed rooms */
   --room-office:       rgba(196, 154, 92, 0.36);    /* private office — ochre */
   --room-meeting:      rgba(86, 138, 156, 0.38);    /* meeting / conference — slate blue */
   --room-collab:       rgba(198, 116, 78, 0.36);    /* collaboration / breakout — terracotta */
