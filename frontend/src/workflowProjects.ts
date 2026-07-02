@@ -24,6 +24,9 @@ export interface EditedDesign {
 export interface GeneratedResult {
   plan: unknown;
   alternatives: unknown[];
+  // Per-family scene-scoreboard targets — seeds the editor scoreboard's target line when a fork of a
+  // generated alternative is opened (an edited design's own scene already carries its program_ref).
+  programTargets?: Record<string, number>;
   updatedAt: number;
 }
 
@@ -102,11 +105,13 @@ function safeWrite(projects: WorkflowProject[]): { ok: true } | { ok: false; err
 // a fresh Submit, and edits live separately in editedDesigns[], so this never overwrites an edit.
 export function saveGeneratedAlternatives(
   projectId: string,
-  result: { plan: unknown; alternatives: unknown[] },
+  result: { plan: unknown; alternatives: unknown[]; programTargets?: Record<string, number> },
 ): { ok: true } | { ok: false; error: string } {
   const projects = read();
   if (!projects.some((p) => p.id === projectId)) return { ok: false, error: "Project not found." };
-  const gen: GeneratedResult = { plan: result.plan, alternatives: result.alternatives, updatedAt: Date.now() };
+  const gen: GeneratedResult = {
+    plan: result.plan, alternatives: result.alternatives, programTargets: result.programTargets, updatedAt: Date.now(),
+  };
   const next = projects.map((p) =>
     p.id === projectId ? { ...p, generatedAlternatives: gen, status: "ready" as ProjectStatus, updatedAt: Date.now() } : p,
   );

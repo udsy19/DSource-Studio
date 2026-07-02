@@ -183,6 +183,20 @@ const ROOM_FAMILY: Record<string, string> = {
   amenity: "Amenities",
 };
 
+// Aggregate a detailed program into the scene scoreboard's target keys (Offices→offices;
+// Conference+Team rooms→meetings; Collaboration→collaboration; Amenities aren't a scene-zone target).
+// Persisted with the generated set so a design opened in the editor gets its target line back.
+function sceneProgramTargets(program: DetailedProgram): Record<string, number> {
+  const t = { target_offices: 0, target_meetings: 0, target_collaboration: 0 };
+  for (const r of program.rooms) {
+    const fam = ROOM_FAMILY[r.type];
+    if (fam === "Offices") t.target_offices += r.count;
+    else if (fam === "Conference" || fam === "Team rooms") t.target_meetings += r.count;
+    else if (fam === "Collaboration") t.target_collaboration += r.count;
+  }
+  return t;
+}
+
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -419,6 +433,9 @@ export type SubmitInputs = {
   genMode: "concept" | "detailed";
   concept: ConceptProgram;
   detailed: DetailedProgram;
+  // Per-family scene-scoreboard targets (Detailed only) — persisted with the result so the editor
+  // scoreboard shows actual-vs-target when a design is opened later.
+  programTargets?: Record<string, number>;
 };
 
 export default function Studio({
@@ -950,7 +967,10 @@ export default function Studio({
   // Results destination can show its processing → ready / error state. The only generation trigger.
   function submit() {
     if (!file) return;
-    onSubmit({ file, genMode, concept, detailed });
+    onSubmit({
+      file, genMode, concept, detailed,
+      programTargets: genMode === "detailed" ? sceneProgramTargets(detailed) : undefined,
+    });
   }
 
   // Which pipeline steps are reachable given progress (uploaded a plate).

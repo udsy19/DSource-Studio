@@ -19,7 +19,7 @@ type View = "projects" | "studio" | "results" | "editor" | "system";
 // What the editor was opened on: a fresh FORK of a generated alternative (built from-fit), or a
 // REOPEN of an already-saved edited design (seeded from its scene). Held only in memory.
 type EditorTarget =
-  | { kind: "fork"; plan: Plan; testfit: Alternative["testfit"]; forkedFrom: string; designName: string }
+  | { kind: "fork"; plan: Plan; testfit: Alternative["testfit"]; forkedFrom: string; designName: string; programTargets?: Record<string, number> }
   | { kind: "reopen"; design: EditedDesign };
 
 export default function App() {
@@ -60,7 +60,7 @@ export default function App() {
       if (job.status !== "ready" || !job.result || job.result.alternatives.length === 0) {
         throw new Error(job.error || (job.status === "processing" ? "Generation timed out." : "No test-fits could be generated for this plate + program."));
       }
-      const saved = saveGeneratedAlternatives(projectId, job.result);
+      const saved = saveGeneratedAlternatives(projectId, { ...job.result, programTargets: inputs.programTargets });
       if (!saved.ok) throw new Error(saved.error);
       refreshActive(projectId);
     } catch (e) {
@@ -81,7 +81,10 @@ export default function App() {
   };
 
   const openEditorFork = (alt: Alternative, plan: Plan) => {
-    setEditorTarget({ kind: "fork", plan, testfit: alt.testfit, forkedFrom: alt.id, designName: `Design ${alt.id}` });
+    setEditorTarget({
+      kind: "fork", plan, testfit: alt.testfit, forkedFrom: alt.id, designName: `Design ${alt.id}`,
+      programTargets: active?.generatedAlternatives?.programTargets,
+    });
     setView("editor");
   };
   const openEditorReopen = (design: EditedDesign) => {
@@ -141,6 +144,7 @@ export default function App() {
             <SceneEditor
               plan={editorTarget.plan}
               testfit={editorTarget.testfit}
+              program={editorTarget.programTargets}
               projectId={active.id}
               forkedFrom={editorTarget.forkedFrom}
               designName={editorTarget.designName}
