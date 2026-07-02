@@ -17,11 +17,15 @@ from pydantic import BaseModel
 from ..scene.adapters import scene_from_generated
 from ..scene.commands import CommandStack
 from ..scene.export import scene_to_dxf
+from ..scene.geometry import scene_to_layout
 from ..scene.metrics import compute_scene_metrics
 from ..scene.model import SceneError
 from ..scene.plates import resolve_plate
 from ..scene.serialize import build_command, scene_from_dict, scene_to_dict
+from ..takeoff.layout_takeoff import build_layout_takeoff
 from ..testfit.payloads import fit_from_payload, plan_from_payload
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 router = APIRouter(prefix="/api/scene", tags=["scene"])
 
@@ -86,4 +90,19 @@ def dxf(req: SceneRequest):
         io.BytesIO(data),
         media_type="image/vnd.dxf",
         headers={"Content-Disposition": "attachment; filename=design.dxf"},
+    )
+
+
+@router.post("/takeoff")
+def takeoff(req: SceneRequest):
+    """Quantity takeoff (.xlsx) for the CURRENT edited scene — projected to the shared layout view
+    (deleted items gone, moved items at their new pose) so the BOM reflects post-edit reality."""
+    workbook = build_layout_takeoff(scene_to_layout(scene_from_dict(req.scene)))
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": "attachment; filename=design-takeoff.xlsx"},
     )

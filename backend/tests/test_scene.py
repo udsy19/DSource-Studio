@@ -24,6 +24,7 @@ from app.scene.commands import (
     SwapPlate,
 )
 from app.scene.export import scene_to_dxf
+from app.scene.geometry import scene_to_layout
 from app.scene.metrics import compute_scene_metrics
 from app.scene.model import (
     Door,
@@ -316,6 +317,43 @@ def test_scene_to_dxf_furniture_count_matches_live_items():
     msp = _modelspace(scene_to_dxf(scene))
     furn = [e for e in msp.query("LWPOLYLINE") if e.dxf.layer == "S-FURN"]
     assert len(furn) == 2  # desk + chair, both live
+
+
+def test_scene_to_dxf_reflects_delete_and_move():
+    """The exported DXF must be the POST-EDIT reality: a deleted item is absent, a moved item sits
+    at its new pose (the geometric form of the real=False discipline)."""
+    scene = _enclosed_scene()
+    stack = CommandStack(scene)
+    stack.execute(DeleteItem("z0-pl", item_ref=0))   # delete the desk
+    stack.execute(MoveItem("z0-pl", item_ref=1, dx=1.0, dy=1.0))  # move the chair (base local 2,4)
+
+    furn = [e for e in _modelspace(scene_to_dxf(scene)).query("LWPOLYLINE") if e.dxf.layer == "S-FURN"]
+    assert len(furn) == 1  # desk gone, chair remains
+    xs = [x for x, _ in ((p[0], p[1]) for p in furn[0].get_points())]
+    assert min(xs) == pytest.approx(3.0, abs=1e-6)  # chair moved from local x=2 to x=3
+
+
+def test_scene_to_layout_reflects_delete_and_move():
+    """scene_to_layout is the single POST-EDIT projection feeding takeoff/report: a deleted item is
+    absent from furniture, a moved item lands at its new world pose."""
+    scene = _enclosed_scene()
+    stack = CommandStack(scene)
+    stack.execute(DeleteItem("z0-pl", item_ref=0))   # delete the desk
+    stack.execute(MoveItem("z0-pl", item_ref=1, dx=1.0, dy=1.0))  # move the chair
+
+    layout = scene_to_layout(scene)
+    assert [f.category for f in layout.furniture] == ["chair"]  # desk absent
+    chair = layout.furniture[0]
+    assert (chair.x, chair.y) == pytest.approx((3.0, 5.0))  # base (2,4) + (1,1)
+
+
+def test_scene_to_layout_projects_walls_and_doors():
+    """The projection carries the underlay + generated partitions as walls and the generated door,
+    so wall/door quantities in the takeoff are real."""
+    layout = scene_to_layout(_enclosed_scene())
+    wall_types = {w.type for w in layout.walls}
+    assert "perimeter" in wall_types and "drywall" in wall_types
+    assert len(layout.doors) == 1
 
 
 # ── adapter: build a scene from a generated test-fit ────────────────────────

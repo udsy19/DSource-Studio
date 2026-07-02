@@ -6,7 +6,10 @@ library + an invariant/unknown rejection surfaced as 422), the metrics scoreboar
 
 from __future__ import annotations
 
+import io
+
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from app.main import app
 from app.scene.model import (

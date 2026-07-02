@@ -7,12 +7,25 @@ inside its zone. Kept pure (no scene mutation) so metrics stay a pure function o
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from shapely.affinity import rotate as _rotate
 from shapely.geometry import Polygon, box
 
+from ..ingestion.schema import Door as LayoutDoor
+from ..ingestion.schema import ExtractedLayout, FurnitureItem, Room, Wall
 from .model import Placement, PlacementItem, Plate, Scene, Zone
+
+# scene room_type -> the layout room `type` vocabulary compute_layout_metrics understands (its
+# enclosed-seat test keys off office/meeting/huddle).
+_ROOM_TYPE_TO_LAYOUT = {
+    "private_office": "office",
+    "meeting_room": "meeting",
+    "collaboration": "collab",
+    "open": "open",
+    "open_plan": "open",
+}
 
 
 @dataclass
@@ -98,3 +111,62 @@ def clamp_local_into_zone(
     elif fmaxy > zmaxy:
         dy -= fmaxy - zmaxy
     return round(dx, 3), round(dy, 3)
+
+
+def scene_to_layout(scene: Scene) -> ExtractedLayout:
+    """Project the scene into the shared ExtractedLayout — the single POST-EDIT view every
+    deliverable reads (metrics, takeoff, report). Resolves every placement item (deleted items
+    skipped, overrides applied, world pose) into furniture, zones into rooms, and the underlay +
+    generated partitions/doors into walls/doors. Nothing invented — all geometry off the scene."""
+    items = resolved_items(scene)
+    rooms = [
+        Room(
+            id=z.id, label=None,
+            area_sf=round(Polygon(z.polygon).area, 1) if len(z.polygon) >= 3 else None,
+            polygon=list(z.polygon),
+            type=_ROOM_TYPE_TO_LAYOUT.get(z.room_type, z.room_type),
+            boundary_basis="walls_closed" if z.enclosed else "open", confidence=1.0,
+        )
+        for z in scene.zones
+    ]
+    furniture = [
+        FurnitureItem(
+            category=it.category, block_name=it.model or it.category,
+            brand=None, model=it.model,
+            x=it.x, y=it.y, w=it.w, h=it.h, rotation=it.rotation, room_id=it.zone_id,
+        )
+        for it in items
+    ]
+
+    walls: list[Wall] = []
+    u = scene.underlay
+    if len(u.boundary) >= 3:
+        walls.append(Wall(points=[*u.boundary, u.boundary[0]], type="perimeter"))
+    for core in u.cores:
+        if len(core) >= 3:
+            walls.append(Wall(points=[*core, core[0]], type="core"))
+    walls += [Wall(points=[p.segment[0], p.segment[1]], type="drywall") for p in scene.partitions]
+
+    hosts = {p.id: p for p in scene.partitions}
+    doors: list[LayoutDoor] = []
+    for d in scene.doors:
+        host = hosts.get(d.host_partition_id)
+        if host is None:
+            continue
+        (x1, y1), (x2, y2) = host.segment
+        length = host.length() or 1.0
+        ux, uy = (x2 - x1) / length, (y2 - y1) / length
+        doors.append(LayoutDoor(
+            x=x1 + ux * d.offset, y=y1 + uy * d.offset, width=d.width,
+            rotation=math.degrees(math.atan2(uy, ux)), flip=d.swing == "right",
+        ))
+    doors += [LayoutDoor(x=bd.x, y=bd.y, width=bd.width, rotation=bd.rotation) for bd in u.base_doors]
+
+    xs = [x for x, _ in u.boundary]
+    ys = [y for _, y in u.boundary]
+    bounds = (min(xs), min(ys), max(xs), max(ys)) if xs else (0.0, 0.0, 0.0, 0.0)
+    return ExtractedLayout(
+        source="scene", units="ft", bounds=bounds,
+        walls=walls, doors=doors, rooms=rooms, furniture=furniture,
+        needs_confirmation=False,
+    )
