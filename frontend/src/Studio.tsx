@@ -17,6 +17,7 @@ import {
   mergeRooms,
   money,
   num,
+  renderEditView,
   renderStatus,
   renderView,
   type Bom,
@@ -357,6 +358,7 @@ export default function Studio({
     style: "",
   });
   const [renderReady, setRenderReady] = useState(false);
+  const [editConfigured, setEditConfigured] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderResult, setRenderResult] = useState<string | null>(null);
   // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
@@ -513,10 +515,15 @@ export default function Studio({
   };
 
   // Does a render provider have a key? Gate the Visualize action on it (never fake a render).
+  // `editConfigured` gates the per-surface finish edits (Kontext) separately — they're Replicate-only.
   useEffect(() => {
     let live = true;
     renderStatus()
-      .then((s) => live && setRenderReady(s.configured))
+      .then((s) => {
+        if (!live) return;
+        setRenderReady(s.configured);
+        setEditConfigured(s.edit_configured);
+      })
       .catch(() => live && setRenderReady(false));
     return () => {
       live = false;
@@ -540,6 +547,24 @@ export default function Studio({
       if (image) setRenderResult(image);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Render failed.");
+    } finally {
+      setRendering(false);
+    }
+  };
+
+  // Targeted per-surface edit — swap ONE finish on the current render via Kontext, leaving the rest
+  // intact. Only meaningful once a base render exists; updates the render in place so the user sees
+  // just that surface change. Records the selection in `finishes` so the panel reflects it.
+  const editSurface = async (field: string, value: string) => {
+    if (!renderResult || !value) return;
+    setRendering(true);
+    setErr(null);
+    try {
+      const { image } = await renderEditView(renderResult, field, value);
+      if (image) setRenderResult(image);
+      setFinishes((prev) => ({ ...prev, [field]: value }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Edit failed.");
     } finally {
       setRendering(false);
     }
@@ -1340,7 +1365,15 @@ export default function Studio({
 
         {step === "visualize" && (
           renderReady ? (
-            <FinishesPanel finishes={finishes} onChange={setFinishes} onVisualize={visualize} busy={rendering} />
+            <FinishesPanel
+              finishes={finishes}
+              onChange={setFinishes}
+              onVisualize={visualize}
+              busy={rendering}
+              hasRender={!!renderResult}
+              editConfigured={editConfigured}
+              onEditSurface={editSurface}
+            />
           ) : (
             <Callout quiet>
               Photoreal render needs a provider key (RENDER_API_KEY or REPLICATE_API_TOKEN) in the backend.
@@ -1622,28 +1655,46 @@ function FinishesPanel({
   onChange,
   onVisualize,
   busy,
+  hasRender,
+  editConfigured,
+  onEditSurface,
 }: {
   finishes: Record<string, string>;
   onChange: (f: Record<string, string>) => void;
   onVisualize: () => void;
   busy: boolean;
+  hasRender: boolean;
+  editConfigured: boolean;
+  onEditSurface: (field: string, value: string) => void;
 }) {
+  // Once a base render exists and the edit model is configured, the finish controls become TARGETED
+  // edits: picking a value swaps just that surface on the current render (Kontext), rather than
+  // re-composing the whole prompt. Before then they seed the full-scene "Visualize" render.
+  const refining = hasRender && editConfigured;
   return (
     <div className="brief finishes-panel">
-      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Visualize · finishes</Eyebrow>
+      <Eyebrow style={{ display: "block", marginBottom: 12 }}>
+        {refining ? "Refine · per surface" : "Visualize · finishes"}
+      </Eyebrow>
       {FINISH_FIELDS.map((f) => (
         <div className="brief-field" key={f.key}>
           <span className="brief-label">{f.label}</span>
           <Segmented
             value={finishes[f.key] ?? ""}
-            onChange={(v) => onChange({ ...finishes, [f.key]: v })}
+            onChange={(v) => (refining ? onEditSurface(f.key, v) : onChange({ ...finishes, [f.key]: v }))}
             options={f.options}
           />
         </div>
       ))}
-      <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
-        {busy ? "Rendering…" : "Visualize"}
-      </button>
+      {refining ? (
+        <p className="disclaim" style={{ marginTop: 4 }}>
+          {busy ? "Editing that surface…" : "Pick a finish to change just that surface — the layout stays put."}
+        </p>
+      ) : (
+        <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
+          {busy ? "Rendering…" : "Visualize"}
+        </button>
+      )}
     </div>
   );
 }

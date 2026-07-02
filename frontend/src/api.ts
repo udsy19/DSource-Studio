@@ -17,7 +17,14 @@ export async function generateTestFit(file: File): Promise<TestFitResponse> {
 }
 
 // Render status — whether a provider key is configured, so the UI can gate the Visualize action.
-export async function renderStatus(): Promise<{ configured: boolean; provider: string; model: string | null }> {
+// `edit_configured` gates the per-surface finish edits (Kontext, Replicate-only) separately.
+export async function renderStatus(): Promise<{
+  configured: boolean;
+  provider: string;
+  model: string | null;
+  edit_configured: boolean;
+  edit_model: string | null;
+}> {
   const res = await fetch("/api/render/status");
   if (!res.ok) throw new Error(res.statusText);
   return res.json();
@@ -31,6 +38,30 @@ export async function renderView(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(finishes ? { image, finishes } : { image }),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return res.json();
+}
+
+// Targeted per-surface finish swap — edits ONLY the named surface on an existing render (Kontext),
+// leaving the layout and everything else intact. Distinct from renderView (the full-scene render).
+export async function renderEditView(
+  image: string,
+  field: string,
+  value: string,
+): Promise<{ image: string | null }> {
+  const res = await fetch("/api/render/edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image, field, value }),
   });
   if (!res.ok) {
     let detail = res.statusText;

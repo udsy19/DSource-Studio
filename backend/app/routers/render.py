@@ -51,16 +51,55 @@ def build_render_prompt(finishes: dict[str, str]) -> str:
     return ", ".join(parts)
 
 
+# Per-surface edit instructions for the Kontext targeted-edit model. Each names ONE surface/finish
+# and pins the rest — Kontext changes only what the prompt describes, so the AI beauty layer never
+# moves the structured layout. Distinct from build_render_prompt (which seeds the full-scene render).
+_EDIT_TEMPLATES: dict[str, str] = {
+    "wall": "Change the walls to {}",
+    "floor": "Change the floor to {}",
+    "partition": "Change the partitions to {}",
+    "palette": "Shift the overall colour palette to {}",
+    "style": "Restyle the space in a {} style",
+}
+_EDIT_KEEP = ". Keep the exact same room layout, furniture, camera angle and everything else unchanged."
+
+
+def build_edit_instruction(field: str, value: str) -> str:
+    """Compose a targeted, layout-preserving edit instruction for one finish selection. Raises 422
+    on a blank value or an unknown field so we never send the model an empty/ambiguous edit."""
+    value = (value or "").strip()
+    if not value:
+        raise HTTPException(status_code=422, detail="An edit needs a non-empty finish value.")
+    template = _EDIT_TEMPLATES.get(field)
+    if not template:
+        raise HTTPException(status_code=422, detail=f"Unknown finish field: {field}")
+    return template.format(value) + _EDIT_KEEP
+
+
 class RenderRequest(BaseModel):
     image: str  # data URL or base64 PNG/JPEG of the 3D view
     prompt: str = _BASE_PROMPT
     finishes: dict[str, str] | None = None  # when set, the prompt is composed from these selections
 
 
+class RenderEditRequest(BaseModel):
+    image: str  # the CURRENT render (data URL) to edit in place
+    field: str  # which finish surface to change (wall / floor / partition / palette / style)
+    value: str  # the new finish, e.g. "walnut wood panel"
+
+
 @router.get("/status")
 def status():
     has_key = bool(settings.replicate_api_token if settings.render_provider == "replicate" else settings.render_api_key)
-    return {"configured": has_key, "provider": settings.render_provider, "model": settings.render_model or None}
+    return {
+        "configured": has_key,
+        "provider": settings.render_provider,
+        "model": settings.render_model or None,
+        # Targeted per-surface edits run on the Kontext model (Replicate-only), regardless of the
+        # base render provider — so the UI gates the surface-refine controls on this separately.
+        "edit_configured": bool(settings.replicate_api_token),
+        "edit_model": settings.render_edit_model or None,
+    }
 
 
 def _strip_data_url(image: str) -> str:
@@ -110,23 +149,14 @@ async def _render_generic(image: str, prompt: str) -> str:
     return img
 
 
-async def _render_replicate(image_data_url: str, prompt: str) -> str:
-    """ControlNet interior model on Replicate — conditions on the 3D view's STRUCTURE so the
-    photoreal output keeps the exact room layout (vs Gemini, which reinterprets freely)."""
+async def _replicate_run(model: str, inp: dict) -> str:
+    """POST a Replicate prediction and poll to completion, returning the output image URL/data.
+    Shared by the ControlNet full-scene render and the Kontext targeted edit."""
     token = settings.replicate_api_token
-    model = settings.render_model if "/" in (settings.render_model or "") else "black-forest-labs/flux-canny-dev"
     url = f"https://api.replicate.com/v1/models/{model}/predictions"
     headers = {"Authorization": f"Bearer {token}", "Prefer": "wait", "Content-Type": "application/json"}
-    if "flux" in model:  # Flux ControlNet: edges of the control image bind the output -> layout preserved
-        inp = {"control_image": image_data_url, "prompt": prompt, "guidance": 30,
-               "num_inference_steps": 32, "megapixels": "1", "output_format": "jpg",
-               "output_quality": 92}
-    else:               # generic ControlNet (image + prompt_strength)
-        inp = {"image": image_data_url, "prompt": prompt, "prompt_strength": 0.72,
-               "num_inference_steps": 30, "guidance_scale": 12}
-    body = {"input": inp}
     async with httpx.AsyncClient(timeout=200) as client:
-        resp = await client.post(url, headers=headers, json=body)
+        resp = await client.post(url, headers=headers, json={"input": inp})
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Replicate error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
@@ -149,6 +179,28 @@ async def _render_replicate(image_data_url: str, prompt: str) -> str:
     return out
 
 
+async def _render_replicate(image_data_url: str, prompt: str) -> str:
+    """ControlNet interior model on Replicate — conditions on the 3D view's STRUCTURE so the
+    photoreal output keeps the exact room layout (vs Gemini, which reinterprets freely)."""
+    model = settings.render_model if "/" in (settings.render_model or "") else "black-forest-labs/flux-canny-dev"
+    if "flux" in model:  # Flux ControlNet: edges of the control image bind the output -> layout preserved
+        inp = {"control_image": image_data_url, "prompt": prompt, "guidance": 30,
+               "num_inference_steps": 32, "megapixels": "1", "output_format": "jpg",
+               "output_quality": 92}
+    else:               # generic ControlNet (image + prompt_strength)
+        inp = {"image": image_data_url, "prompt": prompt, "prompt_strength": 0.72,
+               "num_inference_steps": 30, "guidance_scale": 12}
+    return await _replicate_run(model, inp)
+
+
+async def _render_kontext(image_data_url: str, instruction: str) -> str:
+    """flux-kontext-pro — a TARGETED edit: changes only what `instruction` names, leaving the rest
+    of the render intact. This is the per-surface finish swap, distinct from the full-scene render."""
+    inp = {"prompt": instruction, "input_image": image_data_url,
+           "output_format": "jpg", "safety_tolerance": 2}
+    return await _replicate_run(settings.render_edit_model, inp)
+
+
 @router.post("")
 async def render(req: RenderRequest):
     prompt = build_render_prompt(req.finishes) if req.finishes else req.prompt
@@ -162,3 +214,14 @@ async def render(req: RenderRequest):
             raise HTTPException(status_code=501, detail="Set RENDER_API_KEY (Gemini) in backend/.env.")
         return {"image": await _render_gemini(_strip_data_url(req.image), prompt)}
     return {"image": await _render_generic(req.image, prompt)}
+
+
+@router.post("/edit")
+async def render_edit(req: RenderEditRequest):
+    """Targeted per-surface finish swap via the Kontext model — edits ONLY the named surface on an
+    existing render, leaving the layout and everything else intact. Replicate-only, so it gates on
+    REPLICATE_API_TOKEN regardless of the base render provider."""
+    if not settings.replicate_api_token:
+        raise HTTPException(status_code=501, detail="Targeted edits need REPLICATE_API_TOKEN in backend/.env.")
+    instruction = build_edit_instruction(req.field, req.value)
+    return {"image": await _render_kontext(req.image, instruction)}
