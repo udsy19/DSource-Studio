@@ -343,6 +343,11 @@ async function captureSvgJpeg(svg: SVGSVGElement, scale = 2): Promise<string> {
   }
   clone.setAttribute("style", vars.join(";"));
 
+  // Strip all drafting text + sheet chrome (room labels, title block, scale bar, north arrow) so the
+  // image-to-image model renders clean geometry — otherwise it hallucinates the labels into garbled
+  // text splattered across the render.
+  clone.querySelectorAll("text, .title-block, .scale-bar-mark, .north-arrow").forEach((el) => el.remove());
+
   const xml = new XMLSerializer().serializeToString(clone);
   const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   const img = new Image();

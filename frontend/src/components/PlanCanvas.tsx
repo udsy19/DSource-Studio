@@ -952,20 +952,34 @@ function LayoutPlan({
               }
             >
               {interactive && (
-                <>
-                  {/* soft lift — opaque paper caster (invisible against the sheet) carries the shadow */}
-                  <polygon points={polyline(r.polygon)} fill="var(--paper)" filter="url(#plan-lift)" />
+                r.boundary_basis === "furniture_hull" ? (
+                  // Low-confidence zone (no walls closed — just a hull of nearby furniture): a faint
+                  // dashed outline only, NO solid fill or lift, so it reads as a suggested area over
+                  // the open field instead of a broken coloured blob covering the workstations.
                   <polygon
-                    className="room-shape"
+                    className="room-shape room-shape--hint"
                     points={polyline(r.polygon)}
-                    fill={`var(${roomFill(r)})`}
-                    fillOpacity={r.confidence != null && r.confidence < 0.9 ? 0.45 + 0.5 * r.confidence : 1}
+                    fill="none"
                     stroke="var(--room-line)"
                     strokeWidth={1}
-                    strokeDasharray={r.boundary_basis === "furniture_hull" ? "4 3" : undefined}
+                    strokeDasharray="4 3"
                     vectorEffect="non-scaling-stroke"
                   />
-                </>
+                ) : (
+                  <>
+                    {/* soft lift — opaque paper caster (invisible against the sheet) carries the shadow */}
+                    <polygon points={polyline(r.polygon)} fill="var(--paper)" filter="url(#plan-lift)" />
+                    <polygon
+                      className="room-shape"
+                      points={polyline(r.polygon)}
+                      fill={`var(${roomFill(r)})`}
+                      fillOpacity={r.confidence != null && r.confidence < 0.9 ? 0.45 + 0.5 * r.confidence : 1}
+                      stroke="var(--room-line)"
+                      strokeWidth={1}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </>
+                )
               )}
               {r.label && cx != null && cy != null && labelled.has(r.id) && (
                 <text className="room-label" x={cx} y={cy} textAnchor="middle">
