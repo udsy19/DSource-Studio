@@ -80,10 +80,14 @@ export type RoomSeed = { type: string; label: string; x: number; y: number };
 export async function ingestCad(
   file: File,
   seeds?: RoomSeed[],
+  planningArea?: [number, number][],
+  keepWalls?: boolean,
 ): Promise<import("./types").ExtractedLayout> {
   const fd = new FormData();
   fd.append("file", file);
   if (seeds && seeds.length) fd.append("seeds", JSON.stringify(seeds));
+  if (planningArea && planningArea.length >= 3) fd.append("planning_area", JSON.stringify(planningArea));
+  if (keepWalls) fd.append("keep_walls", "true");
   const res = await fetch("/api/ingest/cad", { method: "POST", body: fd });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
   return res.json();

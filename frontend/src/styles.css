@@ -435,6 +435,11 @@ header.bar {
 }
 .room-row:last-child { border-bottom: none; }
 .rm-label { color: var(--ink-2); }
+.rm-type {
+  margin-left: 8px; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid var(--line-2); color: var(--muted);
+  font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle;
+}
 .rm-area { font-family: var(--serif); font-variant-numeric: tabular-nums; color: var(--muted); }
 
 /* swap chooser — piece / room alternatives, accent-framed card above the bill */

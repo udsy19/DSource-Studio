@@ -165,11 +165,15 @@ const ROOM_TYPES: { type: string; label: string }[] = [
   { type: "collab", label: "Collaboration" },
   { type: "reception", label: "Reception" },
   { type: "kitchen", label: "Pantry / Kitchen" },
+  { type: "restroom", label: "Restroom / WC" },
+  { type: "core", label: "Core / Service" },
   { type: "storage", label: "IT / Storage" },
   { type: "unknown", label: "Unspecified" },
 ];
+// type -> short label for the room list; covers every Room.type the reader can emit.
+const ROOM_TYPE_LABEL: Record<string, string> = Object.fromEntries(ROOM_TYPES.map((r) => [r.type, r.label]));
 // Enclosed room types (for the Open/Enclosed readout) — the rest read as open.
-const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen"]);
+const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen", "restroom", "core"]);
 // Merged area (sf) at or above which a merged room reads as boardroom-scale in the suggestion. Below
 // it, the suggestion still offers the fitting layouts but calls them a larger meeting layout.
 const BOARDROOM_MIN_SF = 200;
@@ -349,6 +353,11 @@ export default function Studio({
   // Space-step room markers (seeds) + the pending marker type awaiting a click on the plan.
   const [markers, setMarkers] = useState<RoomSeed[]>([]);
   const [pendingMarker, setPendingMarker] = useState<{ type: string; label: string } | null>(null);
+  // Space-step planning-area polygon (feet) + whether we're drawing it, and the keep-walls toggle.
+  // Both re-run detection: the polygon clips the analyzed area, keep-walls skips gap-healing.
+  const [planningArea, setPlanningArea] = useState<[number, number][]>([]);
+  const [drawingArea, setDrawingArea] = useState(false);
+  const [keepWalls, setKeepWalls] = useState(false);
 
   // Visualization (finishes → photoreal render). Gated on a configured provider key.
   const [finishes, setFinishes] = useState<Record<string, string>>({
@@ -594,14 +603,31 @@ export default function Studio({
     setMarkers((m) => [...m, { ...pendingMarker, x, y }]);
     setPendingMarker(null);
   };
-  // Re-run detection with the markers as extra seeds (explicit — re-ingest is a few seconds).
+  // Append a planning-area vertex where the user clicked the plan (world feet).
+  const addAreaVertex = (x: number, y: number) => setPlanningArea((a) => [...a, [x, y]]);
+  // Toggle planning-area draw mode. Starting clears any prior polygon (draw fresh) and cancels a
+  // pending marker (one placement mode at a time); stopping discards a polygon too small to use.
+  const toggleAreaDraw = () => {
+    setPendingMarker(null);
+    setDrawingArea((on) => {
+      if (on) {
+        setPlanningArea((a) => (a.length >= 3 ? a : []));
+        return false;
+      }
+      setPlanningArea([]);
+      return true;
+    });
+  };
+  // Re-run detection: markers seed segmentation, the polygon clips the analyzed area, keep-walls
+  // skips gap-healing (explicit — re-ingest is a few seconds).
   const reDetect = async () => {
     if (!file) return;
     setBusy(true);
     setErr(null);
+    setDrawingArea(false);
     dismissSwap();
     try {
-      setLayout(await ingestCad(file, markers));
+      setLayout(await ingestCad(file, markers, planningArea, keepWalls));
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
     } finally {
@@ -796,6 +822,9 @@ export default function Studio({
     setAdoptedFit(null);
     setMarkers([]);
     setPendingMarker(null);
+    setPlanningArea([]);
+    setDrawingArea(false);
+    setKeepWalls(false);
     dismissSwap();
     setFile(f);
     try {
@@ -950,6 +979,9 @@ export default function Studio({
           markers={step === "space" ? markers : undefined}
           placing={step === "space" && !!pendingMarker}
           onPlacePoint={step === "space" ? placeMarker : undefined}
+          planningArea={step === "space" && planningArea.length ? planningArea : undefined}
+          drawingArea={step === "space" && drawingArea}
+          onAreaPoint={step === "space" ? addAreaVertex : undefined}
         />
       )}
       {renderResult && (
@@ -1211,7 +1243,12 @@ export default function Studio({
             <div className="rooms-list">
               {rooms.map((r) => (
                 <div className="room-row" key={r.id}>
-                  <span className="rm-label">{r.label}</span>
+                  <span className="rm-label">
+                    {r.label}
+                    {r.type && r.type !== "unknown" && (
+                      <span className="rm-type">{ROOM_TYPE_LABEL[r.type] ?? r.type}</span>
+                    )}
+                  </span>
                   <span className="rm-area">{r.area_sf ? `${num(r.area_sf)} sf` : "—"}</span>
                 </div>
               ))}
@@ -1311,7 +1348,7 @@ export default function Studio({
                       key={m.type}
                       type="button"
                       className={`marker-chip${pendingMarker?.type === m.type ? " is-active" : ""}`}
-                      onClick={() => setPendingMarker(pendingMarker?.type === m.type ? null : m)}
+                      onClick={() => { setDrawingArea(false); setPendingMarker(pendingMarker?.type === m.type ? null : m); }}
                     >
                       {m.label}
                     </button>
@@ -1321,20 +1358,66 @@ export default function Studio({
                   <Callout>Click on the plan to place <b>{pendingMarker.label}</b>. <button type="button" className="link-btn" onClick={() => setPendingMarker(null)}>Cancel</button></Callout>
                 )}
                 {markers.length > 0 && (
-                  <>
-                    <div className="markers-list">
-                      {markers.map((m, i) => (
-                        <div className="marker-row" key={i}>
-                          <span className="marker-row-label">{m.label}</span>
-                          <button type="button" className="marker-del" aria-label={`Remove ${m.label}`} onClick={() => setMarkers(markers.filter((_, j) => j !== i))}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                    <button className="export-btn export-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={reDetect} disabled={busy}>
-                      <span className="export-btn-label">{busy ? "Re-detecting…" : "Re-detect with markers"}</span>
-                      <span className="export-btn-meta">{markers.length} marker{markers.length === 1 ? "" : "s"}</span>
-                    </button>
-                  </>
+                  <div className="markers-list">
+                    {markers.map((m, i) => (
+                      <div className="marker-row" key={i}>
+                        <span className="marker-row-label">{m.label}</span>
+                        <button type="button" className="marker-del" aria-label={`Remove ${m.label}`} onClick={() => setMarkers(markers.filter((_, j) => j !== i))}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="swap-head" style={{ marginTop: 16 }}>
+                  <Eyebrow>Planning area</Eyebrow>
+                  <button type="button" className={`link-btn${drawingArea ? " is-on" : ""}`} aria-pressed={drawingArea} onClick={toggleAreaDraw}>
+                    {drawingArea ? "Cancel" : "Mark area"}
+                  </button>
+                </div>
+                <p className="disclaim" style={{ marginBottom: 10 }}>
+                  Draw a polygon to restrict analysis to that area — rooms, walls, and furniture outside it are dropped.
+                </p>
+                {drawingArea && (
+                  <Callout>
+                    Click the plan to add corners — <b>{planningArea.length}</b> placed{planningArea.length < 3 ? " (need 3+)" : ""}.
+                    {planningArea.length > 0 && <> <button type="button" className="link-btn" onClick={() => setPlanningArea([])}>Clear</button></>}
+                  </Callout>
+                )}
+                {!drawingArea && planningArea.length >= 3 && (
+                  <div className="marker-row">
+                    <span className="marker-row-label">Planning area · {planningArea.length} corners</span>
+                    <button type="button" className="marker-del" aria-label="Remove planning area" onClick={() => setPlanningArea([])}>×</button>
+                  </div>
+                )}
+
+                <div className="swap-head" style={{ marginTop: 16 }}>
+                  <Eyebrow>Walls</Eyebrow>
+                </div>
+                <Segmented
+                  value={keepWalls ? "keep" : "heal"}
+                  onChange={(v) => setKeepWalls(v === "keep")}
+                  options={[
+                    { value: "heal", label: "Heal gaps" },
+                    { value: "keep", label: "As drawn" },
+                  ]}
+                />
+                <p className="disclaim" style={{ marginTop: 8 }}>
+                  {keepWalls
+                    ? "Walls are used exactly as drawn — near-miss partition gaps are left open."
+                    : "Near-miss partition gaps are bridged so rooms separate cleanly."}
+                </p>
+
+                {(markers.length > 0 || planningArea.length >= 3 || keepWalls) && (
+                  <button className="export-btn export-btn--primary" style={{ marginTop: 14, width: "100%" }} onClick={reDetect} disabled={busy}>
+                    <span className="export-btn-label">{busy ? "Re-detecting…" : "Re-detect"}</span>
+                    <span className="export-btn-meta">
+                      {[
+                        markers.length ? `${markers.length} marker${markers.length === 1 ? "" : "s"}` : null,
+                        planningArea.length >= 3 ? "clipped" : null,
+                        keepWalls ? "walls as drawn" : null,
+                      ].filter(Boolean).join(" · ")}
+                    </span>
+                  </button>
                 )}
               </div>
             )}

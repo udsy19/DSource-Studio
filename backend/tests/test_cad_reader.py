@@ -14,8 +14,8 @@ import os
 import ezdxf
 import pytest
 
-from app.ingestion.cad_reader import read_cad
-from app.ingestion.schema import Door
+from app.ingestion.cad_reader import _planning_polygon, clip_to_planning_area, read_cad
+from app.ingestion.schema import Door, FurnitureItem, Wall
 
 REAL_DWG = "/Users/udsy/Downloads/0414-Sheet - 500 - FURNITURE PLAN.dxf.dwg"
 
@@ -305,6 +305,88 @@ def test_gap_healing_separates_rooms_across_a_broken_partition():
     assert "OFFICE A" in closed and "OFFICE B" in closed, (
         f"the 2ft partition gap should be healed so both rooms close; closed labels were {closed}"
     )
+
+
+def test_planning_polygon_rejects_degenerate():
+    # Fewer than three vertices or a zero-area ring is not a usable clip region.
+    assert _planning_polygon(None) is None
+    assert _planning_polygon([(0.0, 0.0), (1.0, 1.0)]) is None
+    assert _planning_polygon([(0.0, 0.0), (2.0, 0.0), (4.0, 0.0)]) is None  # collinear → no area
+    assert _planning_polygon([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]) is not None
+
+
+def test_clip_to_planning_area_drops_elements_outside_polygon():
+    # A 10ft x 10ft planning box at the origin. One piece sits inside, one outside; likewise a wall
+    # and a door. The clip must keep only the in-box elements — dropped, not hidden.
+    area = _planning_polygon([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+    assert area is not None
+    inside = FurnitureItem(category="chair", block_name="in", brand=None, model=None,
+                           x=2.0, y=2.0, w=2.0, h=2.0, rotation=0.0)
+    outside = FurnitureItem(category="chair", block_name="out", brand=None, model=None,
+                            x=50.0, y=50.0, w=2.0, h=2.0, rotation=0.0)
+    walls = [Wall(points=[(1.0, 1.0), (5.0, 5.0)], type="drywall"),   # centroid inside
+             Wall(points=[(40.0, 40.0), (60.0, 60.0)], type="drywall")]  # centroid outside
+    doors = [Door(x=3.0, y=3.0, width=3.0, rotation=0.0),   # inside
+             Door(x=80.0, y=80.0, width=3.0, rotation=0.0)]  # outside
+    kept_f, kept_w, kept_d = clip_to_planning_area(area, [inside, outside], walls, doors)
+    assert [f.block_name for f in kept_f] == ["in"]
+    assert kept_w == [walls[0]]
+    assert kept_d == [doors[0]]
+
+
+def test_planning_area_restricts_read_layout():
+    # The unlabeled fixture is a 40ft x 20ft plate: workstations on the left (x≈5–13ft), a sofa on
+    # the right (x≈27ft). A planning box over the left half must drop the sofa and keep the desks.
+    left_half = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+    layout = read_cad(_unlabeled_rooms_dxf(), "unlabeled.dxf", planning_area=left_half)
+    cats = {f.category for f in layout.furniture}
+    assert "sofa" not in cats, f"the right-side sofa is outside the planning area; got {cats}"
+    assert layout.inventory.get("workstation", 0) == 2
+    assert any("planning area" in n.lower() for n in layout.notes)
+
+
+def test_keep_walls_skips_gap_healing():
+    # Default: the 2ft partition gap is healed, so each room sits in its own wall-bounded region
+    # (walls_closed). With keep_walls the gap is left as drawn, so the two labels share one merged
+    # region and are split by seed (label_seeded) — proving gap-healing was skipped.
+    healed = read_cad(_gapped_partition_dxf(), "gapped.dxf")
+    verbatim = read_cad(_gapped_partition_dxf(), "gapped.dxf", keep_walls=True)
+
+    def basis(layout, label):
+        return next(r.boundary_basis for r in layout.rooms if r.label == label and r.polygon)
+
+    assert basis(healed, "OFFICE A") == "walls_closed"
+    assert basis(healed, "OFFICE B") == "walls_closed"
+    assert basis(verbatim, "OFFICE A") == "label_seeded"
+    assert basis(verbatim, "OFFICE B") == "label_seeded"
+
+
+def _service_rooms_dxf() -> bytes:
+    """A closed 40x20ft plate split at x=20ft into two labeled cells: a toilet and a stair core —
+    exercises WC/restroom and structural-core room typing from the label keywords."""
+    doc = ezdxf.new(setup=True)
+    doc.header["$INSUNITS"] = 1  # inches
+    msp = doc.modelspace()
+
+    perim = [(0, 0), (480, 0), (480, 240), (0, 240), (0, 0)]  # 40ft x 20ft, closed
+    for a, b in zip(perim, perim[1:]):
+        msp.add_line(a, b, dxfattribs={"layer": "A-WALL"})
+    msp.add_line((240, 0), (240, 240), dxfattribs={"layer": "A-WALL"})  # divider at x=20ft
+
+    for name, x in (("MENS TOILET", 120), ("STAIR CORE", 360)):  # each cell 20ft x 20ft = 400 sf
+        msp.add_text(name, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 120))
+        msp.add_text("400 SF", dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x, 96))
+
+    text = io.StringIO()
+    doc.write(text)
+    return text.getvalue().encode("utf-8")
+
+
+def test_restroom_and_core_typed_from_labels():
+    layout = read_cad(_service_rooms_dxf(), "service.dxf")
+    by_label = {r.label: r.type for r in layout.rooms if r.label}
+    assert by_label.get("MENS TOILET") == "restroom", f"WC/toilet should type as restroom; {by_label}"
+    assert by_label.get("STAIR CORE") == "core", f"a stair core should type as core; {by_label}"
 
 
 @pytest.mark.skipif(not os.path.exists(REAL_DWG), reason="real DWG not present")

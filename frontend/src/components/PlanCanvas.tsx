@@ -44,6 +44,11 @@ type LayoutProps = {
   markers?: { type: string; label: string; x: number; y: number }[];
   placing?: boolean;
   onPlacePoint?: (x: number, y: number) => void;
+  // Planning-area polygon (feet): the drawn/committed vertices to outline, and — when drawingArea
+  // is on — a click on the plan appends a vertex via onAreaPoint. Restricts the analyzed area.
+  planningArea?: [number, number][];
+  drawingArea?: boolean;
+  onAreaPoint?: (x: number, y: number) => void;
 };
 type Props = FitProps | LayoutProps;
 
@@ -107,6 +112,8 @@ const ROOM_TYPE_FAMILY: Record<string, RoomFamily> = {
   wellness: "amenity",
   storage: "amenity",
   copy_print: "amenity",
+  restroom: "amenity",  // WC / toilet — a service space
+  core: "amenity",      // structural / service core (stair, lift, shaft) — a service space
 };
 function roomFill(r: ExtractedRoom): string {
   const fam = ROOM_TYPE_FAMILY[r.type];
@@ -790,6 +797,9 @@ function LayoutPlan({
   markers,
   placing,
   onPlacePoint,
+  planningArea,
+  drawingArea,
+  onAreaPoint,
 }: LayoutProps) {
   const [minx, miny, maxx, maxy] = layout.bounds;
   const view = useView(minx, miny, maxx, maxy);
@@ -849,8 +859,8 @@ function LayoutPlan({
       title={sheetName(layout.source)}
       kind="EXTRACTED LAYOUT"
       compact={compact}
-      placing={placing}
-      onPlacePoint={onPlacePoint}
+      placing={placing || drawingArea}
+      onPlacePoint={drawingArea ? onAreaPoint : onPlacePoint}
       overlay={
         // legends — the room-family colour key and the wall-type key, each showing only what's present
         <>
@@ -1181,6 +1191,27 @@ function LayoutPlan({
             </g>
           );
         })}
+
+        {/* planning-area polygon — the drawn/committed vertices, outlined in the accent. Closed when
+            three or more vertices exist (or still being drawn), so the restricted area reads clearly. */}
+        {planningArea && planningArea.length > 0 && (
+          <g className="planning-area">
+            {planningArea.length >= 2 && (
+              <polygon
+                points={planningArea.map(([x, y]) => `${view.fx(x).toFixed(2)},${view.fy(y).toFixed(2)}`).join(" ")}
+                fill="var(--accent-soft)"
+                fillOpacity={drawingArea ? 0.12 : 0.18}
+                stroke="var(--accent)"
+                strokeWidth={1}
+                strokeDasharray={drawingArea ? "4 3" : undefined}
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {planningArea.map(([x, y], i) => (
+              <circle key={i} cx={view.fx(x)} cy={view.fy(y)} r={1.2} fill="var(--accent)" vectorEffect="non-scaling-stroke" />
+            ))}
+          </g>
+        )}
 
         {/* user-dropped room markers (seeds) — pinned on top */}
         {markers?.map((m, i) => (

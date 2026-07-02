@@ -34,9 +34,31 @@ def _parse_seeds(seeds: str | None) -> list[dict] | None:
     return out or None
 
 
+def _parse_planning_area(area: str | None) -> list[tuple[float, float]] | None:
+    """The planning-area polygon, sent as a JSON array of [x, y] vertices (feet, +y up). Restricts
+    the analysis to the marked area — elements outside it are dropped on ingest."""
+    if not area:
+        return None
+    try:
+        parsed = json.loads(area)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="`planning_area` must be valid JSON.")
+    if not isinstance(parsed, list):
+        raise HTTPException(status_code=422, detail="`planning_area` must be a JSON array.")
+    out: list[tuple[float, float]] = [
+        (float(p[0]), float(p[1]))
+        for p in parsed
+        if isinstance(p, (list, tuple)) and len(p) >= 2
+    ]
+    return out or None
+
+
 @router.post("/cad", response_model=ExtractedLayout)
 async def ingest_cad_elements(
-    file: UploadFile = File(...), seeds: str | None = Form(None)
+    file: UploadFile = File(...),
+    seeds: str | None = Form(None),
+    planning_area: str | None = Form(None),
+    keep_walls: bool = Form(False),
 ) -> ExtractedLayout:
     name = (file.filename or "").lower()
     if not name.endswith((".dxf", ".dwg")):
@@ -45,7 +67,10 @@ async def ingest_cad_elements(
     if not content:
         raise HTTPException(status_code=422, detail="Empty file.")
     try:
-        return read_cad(content, file.filename or "", user_seeds=_parse_seeds(seeds))
+        return read_cad(
+            content, file.filename or "", user_seeds=_parse_seeds(seeds),
+            planning_area=_parse_planning_area(planning_area), keep_walls=keep_walls,
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 - surface parse errors at the HTTP boundary

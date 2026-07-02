@@ -71,7 +71,8 @@ _WALL_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
 ]
 
 # Room-label keyword -> room type (first match wins; checked against the upper-cased label). Types
-# are the ones the frontend colour-maps (office/meeting/huddle/reception/collab/kitchen/storage).
+# are the ones the frontend colour-maps (office/meeting/huddle/reception/collab/kitchen/restroom/
+# core/storage) — WC/toilet rooms and structural/service cores read as service (amenity family).
 _ROOM_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
     (("OFFICE", "CABIN", "PHONE", "FOCUS"), "office"),
     (("CONFERENCE", "MEETING", "BOARD"), "meeting"),
@@ -79,6 +80,8 @@ _ROOM_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
     (("RECEPTION", "ENTRY", "LOBBY", "WAITING"), "reception"),
     (("COLLAB", "LOUNGE", "BREAK", "CAFE"), "collab"),
     (("PANTRY", "KITCHEN"), "kitchen"),
+    (("TOILET", "RESTROOM", "WASHROOM", "LAVATORY", "URINAL", "BATH", "WC"), "restroom"),
+    (("CORE", "STAIR", "ELEV", "LIFT", "SHAFT", "RISER", "DUCT"), "core"),
     (("STORAGE", "SERVER", "IDF", "MDF", "BMS", "UPS", "ELEC", "MECH", "LOCKER",
       "JANITOR", "COMMS", "COPY", "PRINT", "MAIL", "WELLNESS", "MOTHER", "UTIL"), "storage"),
 ]
@@ -89,11 +92,17 @@ _MIN_ROOM_SF = 20.0  # a region smaller than this isn't a usable room
 
 
 def read_cad(
-    content: bytes, filename: str, extract_outline: bool = True, user_seeds: list[dict] | None = None
+    content: bytes, filename: str, extract_outline: bool = True, user_seeds: list[dict] | None = None,
+    planning_area: list[tuple[float, float]] | None = None, keep_walls: bool = False,
 ) -> ExtractedLayout:
     """Read a CAD layout. `extract_outline` (default on) flattens each item's real plan geometry for
     true-shape rendering — it's the slow part, so the catalog build turns it OFF (footprint is enough
-    for slotting/swapping, and storing outlines for 684 apps would bloat the library to ~400 MB)."""
+    for slotting/swapping, and storing outlines for 684 apps would bloat the library to ~400 MB).
+
+    `planning_area` (feet, +y up) restricts the analysis: elements whose centre lies outside the
+    polygon are dropped before detection, so the recovered layout covers only the marked area.
+    `keep_walls` preserves the drawing's walls verbatim — gap-healing is skipped, so partitions are
+    used exactly as drawn instead of extended to close near-miss junctions."""
     if (filename or "").lower().endswith(".dwg"):
         content = _dwg_to_dxf_bytes(content)
     doc = _read_dxf_doc(content)
@@ -106,6 +115,16 @@ def read_cad(
 
     furniture, doors = _read_inserts(msp, lf, extract_outline)
     walls, wall_lines = _read_walls(msp, lf)
+
+    area = _planning_polygon(planning_area)
+    if area is not None:
+        furniture, walls, doors = clip_to_planning_area(area, furniture, walls, doors)
+        wall_lines = [LineString(w.points) for w in walls]
+        notes.append(
+            "Analysis restricted to the marked planning area; elements whose centre fell outside it "
+            "were dropped (removed, not hidden)."
+        )
+
     bounds = _bounds(furniture, walls, doors)
     if _synthesize_perimeter(walls, bounds):
         notes.append(
@@ -118,7 +137,11 @@ def read_cad(
     # `walls` (not `wall_lines`); without it the open plate edge leaks and every perimeter-adjacent
     # room drops to label-only. Seal it into the room boundaries.
     room_lines = wall_lines + [LineString(w.points) for w in walls if w.type == "perimeter"]
-    rooms, room_note = _read_rooms(room_lines, panels, doors, bounds, msp, lf, furniture, user_seeds)
+    rooms, room_note = _read_rooms(
+        room_lines, panels, doors, bounds, msp, lf, furniture, user_seeds, keep_walls
+    )
+    if area is not None:
+        rooms = [r for r in rooms if r.center is None or area.covers(Point(r.center[0], r.center[1]))]
     _assign_rooms(furniture, rooms)
     if room_note:
         notes.append(room_note)
@@ -322,6 +345,32 @@ def _extract_model(name: str) -> str | None:
     return segment or None
 
 
+def _planning_polygon(points: list[tuple[float, float]] | None) -> Polygon | None:
+    """The user's planning-area polygon (feet) as a valid shapely Polygon, or None when it's
+    degenerate (fewer than three vertices or no area) — in which case the caller keeps the full
+    plate rather than clipping to nothing."""
+    if not points or len(points) < 3:
+        return None
+    poly = Polygon(points)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty or poly.geom_type != "Polygon" or poly.area <= 0:
+        return None
+    return poly
+
+
+def clip_to_planning_area(
+    area: Polygon, furniture: list[FurnitureItem], walls: list[Wall], doors: list[Door],
+) -> tuple[list[FurnitureItem], list[Wall], list[Door]]:
+    """Keep only the elements whose centre lies inside the planning polygon. An honest clip: every
+    out-of-scope element is dropped from the returned lists, never merely hidden. Rooms are clipped
+    by the caller after segmentation (they don't exist yet at read time)."""
+    kept_furniture = [f for f in furniture if area.covers(Point(f.x + f.w / 2, f.y + f.h / 2))]
+    kept_walls = [w for w in walls if area.covers(LineString(w.points).centroid)]
+    kept_doors = [d for d in doors if area.covers(Point(d.x, d.y))]
+    return kept_furniture, kept_walls, kept_doors
+
+
 def _read_walls(msp, lf: float) -> tuple[list[Wall], list[LineString]]:
     walls: list[Wall] = []
     lines: list[LineString] = []
@@ -510,13 +559,15 @@ _HULL_REACH_FT = 13.0  # a label-only room borrows the hull of furniture within 
 def _read_rooms(
     wall_lines: list[LineString], panels: list[FurnitureItem], doors: list[Door],
     bounds: tuple[float, float, float, float], msp, lf: float, furniture: list[FurnitureItem],
-    user_seeds: list[dict] | None = None,
+    user_seeds: list[dict] | None = None, keep_walls: bool = False,
 ) -> tuple[list[Room], str | None]:
     """Label-seeded room detection (see room_segment). Boundaries = healed walls + glass partitions
     + door plugs; each room label is a seed. Every returned room records how its boundary was
-    derived (boundary_basis + confidence), so a shaky boundary is shown as shaky, never faked."""
+    derived (boundary_basis + confidence), so a shaky boundary is shown as shaky, never faked.
+    `keep_walls` uses the walls verbatim (no gap-healing) — the drawing's partitions as drawn."""
     labels = _read_room_labels(msp, lf)
-    boundaries = list(_heal_wall_gaps(wall_lines))  # bridge near-miss junctions so rooms separate
+    # bridge near-miss junctions so rooms separate — unless the user asked to keep walls verbatim
+    boundaries = list(wall_lines if keep_walls else _heal_wall_gaps(wall_lines))
     boundaries += [_panel_segment(p) for p in panels]  # glass-walled rooms close on the partitions
     boundaries += [_door_segment(d) for d in doors]  # plug doorways so rooms don't leak through them
     boundaries = [b for b in boundaries if b.length > 0.1]
