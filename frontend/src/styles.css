@@ -791,6 +791,12 @@ header.bar {
 .marker-del { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
 .marker-del:hover { color: var(--accent); }
 
+/* ── scene editor (semantic scene surface) ── */
+/* the base building is display-only — nothing in it is a hover/click target */
+.scene-underlay { pointer-events: none; }
+.scene-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.scene-toolbar-actions { display: flex; gap: 12px; }
+
 /* ── room property panel (editor) ── */
 .room-props select.ds-input { cursor: pointer; appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);

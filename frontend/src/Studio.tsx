@@ -30,6 +30,7 @@ import {
 import Dropzone from "./components/Dropzone";
 import { furnitureSymbol } from "./components/furnitureSymbols";
 import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
+import SceneEditor from "./components/SceneEditor";
 import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
 import WizardStepper, { type WizardStep } from "./components/WizardStepper";
@@ -280,7 +281,7 @@ const DEFAULT_DETAILED: DetailedProgram = {
 // ── swap geometry ──
 // Recognized furniture a room swap places — mirrors the backend _SLOT_CATS so Read-mode swaps and
 // the generator agree on what a room contains (the rest are CET sub-component blocks / glass).
-const SLOT_CATS = new Set<string>([
+export const SLOT_CATS = new Set<string>([
   "chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter",
 ]);
 
@@ -433,6 +434,7 @@ export default function Studio({
   const [versions, setVersions] = useState<{ plan: Plan; alternatives: Alternative[] } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pinned, setPinned] = useState<Instance[]>([]); // Detailed iterate: rooms kept across regenerations
+  const [sceneEditing, setSceneEditing] = useState(false); // the semantic scene editor over the selected version
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1416,6 +1418,19 @@ export default function Studio({
     </>
   );
 
+  // The semantic scene editor is a distinct surface over the selected generated version — it
+  // replaces the wizard while open, and exits back to the versions list.
+  if (sceneEditing && versions && selected) {
+    return (
+      <SceneEditor
+        plan={versions.plan}
+        testfit={selected.testfit}
+        program={genMode === "detailed" ? detailed : undefined}
+        onExit={() => setSceneEditing(false)}
+      />
+    );
+  }
+
   return (
     <main className="studio studio-wizard">
       <WizardStepper step={step} onStep={goStep} reachable={reachable} />
@@ -1644,6 +1659,10 @@ export default function Studio({
                       <span className="export-btn-label">Open in editor</span>
                       <span className="export-btn-meta">→ edit · swap · export</span>
                     </button>
+                    <button className="export-btn" style={{ width: "100%", marginTop: 8 }} onClick={() => setSceneEditing(true)} disabled={busy}>
+                      <span className="export-btn-label">Edit in Studio</span>
+                      <span className="export-btn-meta">→ semantic scene · locked base</span>
+                    </button>
                   </div>
                   <hr className="ds-rule" />
                   <div className="exports">
@@ -1764,7 +1783,7 @@ function ShapeThumb({ outline, w, h }: { outline?: [number, number][][]; w: numb
 // A mini-plan of a setting's arrangement — its placed furniture drawn in the room's own footprint,
 // ink hairlines on a paper field, y-flipped so it reads like PlanCanvas. Powers the Layouts palette.
 // Filters to SLOT_CATS so the thumbnail shows exactly what applyRoomSwap will drop in.
-function ArrangementThumb({ setting }: { setting: CatalogSetting }) {
+export function ArrangementThumb({ setting }: { setting: CatalogSetting }) {
   const pieces = setting.furniture.filter((sf) => SLOT_CATS.has(sf.category));
   const W = Math.max(setting.width_ft || Math.max(0.1, ...pieces.map((p) => p.dx + p.w)), 0.1);
   const H = Math.max(setting.height_ft || Math.max(0.1, ...pieces.map((p) => p.dy + p.h)), 0.1);
