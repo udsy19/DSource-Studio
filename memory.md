@@ -2,7 +2,19 @@
 
 The single source of truth for *current* state: locked decisions, status, what's real vs synthetic, open questions. Updated as work lands. Companion to `CLAUDE.md` (rules) and `ROADMAP.md` (plan).
 
-_Last updated: 2026-06-22._
+_Last updated: 2026-07-02._
+
+## Studio (qbiq-clone) — active phase (branch `floorplan-editor`)
+
+The Studio/test-fit track (semantic scene editor: locked underlay + editable zones/partitions/doors/placements, command API `/api/scene/*` with invariants, 671-plate Steelcase library, program-as-scoreboard, localStorage `editedDesigns[]`, Tier-0 variant scoring in `scoring.py`). Phase-2 plan = five workstreams A–E (Canva-feel on-canvas editing, Submit→Results→Editor IA, program anchor pins, N-candidate generation, agent-critic R&D).
+
+- **Workstream A DONE (on-canvas interaction model).** Every persistent edit is still one validated command via `/api/scene/apply`; local transforms during a gesture are ephemeral (optimistic), server scene is the source of truth.
+  - A0: rotate grip bug fixed — a bare click did pointerdown→up with no move, so `rotating` stayed null and the pointerUp guard dropped the command. Now bare click = +90° detent; drag preview snaps to 45° (WYSIWYG with backend `_snap_45`).
+  - A2: item drag clamps to its zone bbox client-side (UX hint; server `clamp_local_into_zone` stays authority); selected item eases to committed pose so a server settle / rejected-command snap-back reads as motion.
+  - A3: doors slide along their host wall (offset clamped to `[0, len−width]`, the jamb bound mirroring `EditDoor`) and flip via an on-canvas ⟲ grip — one command each. DoorPanel slimmed to a recap (nudge/flip buttons removed).
+  - Gizmo delete bug found+fixed by the acceptance run: the delete affordance didn't `stopPropagation` on pointerdown, so canvas pan-capture ate the click.
+  - Frontend has **no test runner** (no vitest/jest) — per the phase rule, frontend changes are guarded by Playwright browser verification, not unit tests. Standing up vitest is a deferred, separate decision.
+- **Next:** Workstream B (Submit→Results→Editor IA restructure) — replaces the Review wizard step, the `Resume editing` dashboard side-door, and the modal editor entry. Then C/D (anchor pins, N-candidate generation), then E (agent-critic, offline/gated).
 
 ## Locked decisions
 
