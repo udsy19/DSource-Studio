@@ -54,6 +54,10 @@ class RoomRequest(BaseModel):
     type: str  # any room catalog key or legacy alias (validated against catalog.py)
     count: int = Field(ge=0)
     placement: str = Field("flexible", pattern="^(window|core|flexible)$")
+    # SOFT preferred spot as a fraction of the plate bbox (0..1 in each axis). When set, the placer
+    # biases these rooms toward the point but never overrides feasibility. None = no preference.
+    preferred_x: float | None = Field(None, ge=0.0, le=1.0)
+    preferred_y: float | None = Field(None, ge=0.0, le=1.0)
 
     @field_validator("type")
     @classmethod
@@ -105,11 +109,15 @@ def _place_rooms(
     `pre_occupied` (locked-room footprints) is reserved so new rooms avoid it; `locked_by_instance`
     reduces the request so a locked room counts toward its type's total instead of doubling it.
     """
+    minx, miny, maxx, maxy = usable.bounds
     window: list[RoomSpec] = []
     core: list[RoomSpec] = []
     flexible: list[RoomSpec] = []
     for req in program.rooms:
         spec_room = room_spec(req.type)
+        if req.preferred_x is not None and req.preferred_y is not None:
+            spec_room.preferred = (minx + req.preferred_x * (maxx - minx),
+                                   miny + req.preferred_y * (maxy - miny))
         n = max(0, round(req.count * density_scale)) if density_scale < 1.0 else req.count
         bucket = {"window": window, "core": core, "flexible": flexible}[req.placement]
         bucket += [spec_room] * n

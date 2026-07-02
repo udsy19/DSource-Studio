@@ -41,6 +41,20 @@ def test_edit_instruction_names_surface_and_pins_the_rest():
     assert "layout" in ins and "unchanged" in ins
 
 
+def test_edit_instruction_scopes_to_one_room_when_given():
+    # A scoped edit names the surface AND the room, so Kontext changes only that room's finish.
+    ins = build_edit_instruction("wall", "walnut wood panel", scope="meeting room")
+    assert "walls to walnut wood panel in the meeting room" in ins
+    assert "everything else unchanged" in ins  # the rest of the scene is still pinned
+
+
+def test_edit_instruction_without_scope_is_global_and_unchanged():
+    # Back-compatible: omitting scope (or passing blank) yields the exact global wording.
+    assert build_edit_instruction("wall", "walnut wood panel") == \
+        build_edit_instruction("wall", "walnut wood panel", scope="   ")
+    assert "in the" not in build_edit_instruction("wall", "walnut wood panel").split(". Keep")[0]
+
+
 def test_edit_instruction_rejects_blank_value():
     with pytest.raises(HTTPException) as e:
         build_edit_instruction("floor", "   ")

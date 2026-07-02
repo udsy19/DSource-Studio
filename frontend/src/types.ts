@@ -208,6 +208,10 @@ export interface RoomRequest {
   type: RoomType;
   count: number;
   placement: Placement;
+  // Soft preferred spot as a fraction of the plate bbox (0..1 each axis). Biases placement toward
+  // the point without overriding feasibility. Omitted = no preference. Mirrors backend RoomRequest.
+  preferred_x?: number;
+  preferred_y?: number;
 }
 
 export interface DetailedProgram {

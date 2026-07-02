@@ -103,6 +103,32 @@ def test_window_offices_sit_nearer_perimeter_than_core():
     assert mean_edge_distance(window) < mean_edge_distance(core)
 
 
+def test_preferred_location_biases_window_placement():
+    """A soft preferred spot pulls a window room toward it — an office asked for near the right
+    edge lands further right than the same office asked for near the left edge."""
+    plan = _plan()  # 140 x 90 ft
+    near_right = generate_from_detailed(plan, DetailedProgram(
+        rooms=[RoomRequest(type="office", count=1, placement="window",
+                           preferred_x=0.95, preferred_y=0.5)]))
+    near_left = generate_from_detailed(plan, DetailedProgram(
+        rooms=[RoomRequest(type="office", count=1, placement="window",
+                           preferred_x=0.05, preferred_y=0.5)]))
+    right_x = _instances_of(near_right["alternatives"][0], "private_office")[0]["x"]
+    left_x = _instances_of(near_left["alternatives"][0], "private_office")[0]["x"]
+    assert right_x > left_x, "the office should follow the preferred point toward the right edge"
+
+
+def test_preferred_location_is_soft_not_a_hard_pin():
+    """The preference is a bias, never a pin: a centre-of-plate preference (unreachable on the
+    perimeter band) still yields fully placed, valid window rooms — feasibility wins."""
+    plan = _plan()
+    result = generate_from_detailed(plan, DetailedProgram(
+        rooms=[RoomRequest(type="office", count=3, placement="window",
+                           preferred_x=0.5, preferred_y=0.5)]))
+    offices = _instances_of(result["alternatives"][0], "private_office")
+    assert len(offices) == 3, "all requested rooms still place despite an unreachable preference"
+
+
 def test_is_deterministic():
     program = DetailedProgram(rooms=[
         RoomRequest(type="office", count=3, placement="window"),

@@ -39,6 +39,9 @@ class RoomSpec:
     width_ft: float
     depth_ft: float  # depth measured perpendicular to the wall it sits against
     setting: "Setting | None" = None  # the Steelcase application this room IS (sized to its footprint)
+    # SOFT preferred location (world feet): when set, the edge-march picks the VALID slot nearest
+    # this point rather than the first one found. A bias, never a pin — feasibility still wins.
+    preferred: "tuple[float, float] | None" = None
 
 
 # Reasonable program rectangles (feet). Depth = how far the room reaches in from the wall.
@@ -156,7 +159,14 @@ def _place_one_along_walls(
     placed: list[PlacedRoom],
     placed_polys: list[Polygon],
 ) -> bool:
-    """March `spec` along every axis-aligned wall edge; place at the first valid slot."""
+    """March `spec` along every axis-aligned wall edge and place it.
+
+    Without a preferred point: place at the FIRST valid slot (fast, deterministic — the legacy
+    behaviour). With a `spec.preferred` point: scan every valid slot and place at the one whose
+    centre is nearest that point — a SOFT bias that never places into an invalid slot, so
+    feasibility (containment, core/column/overlap clearance) always wins over the preference."""
+    best_rect: Polygon | None = None
+    best_dist = float("inf")
     for (p1, p2) in _edges(boundary_poly):
         tangent, normal, length = _interior_normal(boundary_poly, p1, p2)
         if tangent is None:
@@ -170,13 +180,26 @@ def _place_one_along_walls(
             guard += 1
             rect = _room_rect(p1, tangent, normal, along, spec.width_ft, spec.depth_ft, setback_ft)
             if rect.is_valid and rect.area > 0 and valid(rect):
-                minx, miny, maxx, maxy = _axis_aligned_bbox(rect)
-                placed.append(PlacedRoom(
-                    type=spec.type, x=round(minx, 2), y=round(miny, 2),
-                    w=round(maxx - minx, 2), h=round(maxy - miny, 2), rotation=0,
-                    setting=spec.setting,
-                ))
-                placed_polys.append(rect)
-                return True
+                if spec.preferred is None:
+                    return _commit_room(spec, rect, placed, placed_polys)
+                dist = rect.centroid.distance(Point(spec.preferred))
+                if dist < best_dist:
+                    best_dist, best_rect = dist, rect
             along += 2.0
+    if best_rect is not None:
+        return _commit_room(spec, best_rect, placed, placed_polys)
     return False
+
+
+def _commit_room(
+    spec: RoomSpec, rect: Polygon, placed: list[PlacedRoom], placed_polys: list[Polygon]
+) -> bool:
+    """Record `rect` as a PlacedRoom (axis-aligned bbox) and reserve its footprint."""
+    minx, miny, maxx, maxy = _axis_aligned_bbox(rect)
+    placed.append(PlacedRoom(
+        type=spec.type, x=round(minx, 2), y=round(miny, 2),
+        w=round(maxx - minx, 2), h=round(maxy - miny, 2), rotation=0,
+        setting=spec.setting,
+    ))
+    placed_polys.append(rect)
+    return True

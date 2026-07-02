@@ -64,16 +64,21 @@ _EDIT_TEMPLATES: dict[str, str] = {
 _EDIT_KEEP = ". Keep the exact same room layout, furniture, camera angle and everything else unchanged."
 
 
-def build_edit_instruction(field: str, value: str) -> str:
+def build_edit_instruction(field: str, value: str, scope: str | None = None) -> str:
     """Compose a targeted, layout-preserving edit instruction for one finish selection. Raises 422
-    on a blank value or an unknown field so we never send the model an empty/ambiguous edit."""
+    on a blank value or an unknown field so we never send the model an empty/ambiguous edit.
+
+    `scope` optionally confines the change to one room/space (e.g. "meeting room"): the surface
+    phrase gains an "in the <scope>" locator so Kontext edits only that room and leaves the rest
+    identical. A blank/omitted scope keeps the current global wording (back-compatible)."""
     value = (value or "").strip()
     if not value:
         raise HTTPException(status_code=422, detail="An edit needs a non-empty finish value.")
     template = _EDIT_TEMPLATES.get(field)
     if not template:
         raise HTTPException(status_code=422, detail=f"Unknown finish field: {field}")
-    return template.format(value) + _EDIT_KEEP
+    locator = f" in the {scope.strip()}" if (scope or "").strip() else ""
+    return template.format(value) + locator + _EDIT_KEEP
 
 
 class RenderRequest(BaseModel):
@@ -86,6 +91,7 @@ class RenderEditRequest(BaseModel):
     image: str  # the CURRENT render (data URL) to edit in place
     field: str  # which finish surface to change (wall / floor / partition / palette / style)
     value: str  # the new finish, e.g. "walnut wood panel"
+    scope: str | None = None  # optional room/space to confine the edit to, e.g. "meeting room"
 
 
 @router.get("/status")
@@ -230,5 +236,5 @@ async def render_edit(req: RenderEditRequest):
     REPLICATE_API_TOKEN regardless of the base render provider."""
     if not settings.replicate_api_token:
         raise HTTPException(status_code=501, detail="Targeted edits need REPLICATE_API_TOKEN in backend/.env.")
-    instruction = build_edit_instruction(req.field, req.value)
+    instruction = build_edit_instruction(req.field, req.value, req.scope)
     return {"image": await _render_kontext(req.image, instruction)}

@@ -57,11 +57,12 @@ export async function renderEditView(
   image: string,
   field: string,
   value: string,
+  scope?: string,
 ): Promise<{ image: string | null }> {
   const res = await fetch("/api/render/edit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image, field, value }),
+    body: JSON.stringify(scope ? { image, field, value, scope } : { image, field, value }),
   });
   if (!res.ok) {
     let detail = res.statusText;

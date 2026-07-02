@@ -197,6 +197,14 @@ const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "flexible", label: "Flexible" },
 ];
 
+// A 3x3 grid of soft preferred spots on the plate (fraction of its bbox). Picking a cell biases
+// where a room type lands; the generator weights it but never lets it override feasibility.
+const PREFERRED_ZONES: { x: number; y: number; label: string }[] = [
+  { x: 0.15, y: 0.15, label: "front-left" }, { x: 0.5, y: 0.15, label: "front" }, { x: 0.85, y: 0.15, label: "front-right" },
+  { x: 0.15, y: 0.5, label: "left" }, { x: 0.5, y: 0.5, label: "centre" }, { x: 0.85, y: 0.5, label: "right" },
+  { x: 0.15, y: 0.85, label: "back-left" }, { x: 0.5, y: 0.85, label: "back" }, { x: 0.85, y: 0.85, label: "back-right" },
+];
+
 // Visualization finishes — each selection's value is the phrase folded into the render prompt
 // (empty = leave as-is). Mirrors the backend build_render_prompt keys (wall/floor/palette/style).
 const FINISH_FIELDS: { key: string; label: string; options: { value: string; label: string }[] }[] = [
@@ -225,6 +233,34 @@ const FINISH_FIELDS: { key: string; label: string; options: { value: string; lab
     { value: "scandinavian", label: "Scandi" },
   ] },
 ];
+
+// Preset finish THEMES — a named bundle of {wall, floor, palette, style} FINISH_FIELDS values,
+// selectable as one gesture. Values must be real FINISH_FIELDS options so the Segmented controls
+// reflect the pick. `swatch` is a 3-chip UI hint (wall / floor / palette), not a material claim.
+const FINISH_THEMES: { name: string; finishes: Record<string, string>; swatch: [string, string, string] }[] = [
+  { name: "Warm biophilic",
+    finishes: { wall: "walnut wood panel", floor: "light oak wood", palette: "earthy biophilic", style: "biophilic" },
+    swatch: ["#6b4a2f", "#c8a06a", "#7c8a5a"] },
+  { name: "Cool minimal",
+    finishes: { wall: "white drywall", floor: "polished concrete", palette: "cool grey", style: "" },
+    swatch: ["#eae7e1", "#9a9a97", "#b7bcc0"] },
+  { name: "Industrial loft",
+    finishes: { wall: "exposed concrete", floor: "polished concrete", palette: "cool grey", style: "industrial" },
+    swatch: ["#8f8b85", "#6f6f6d", "#54585c"] },
+  { name: "Scandi light",
+    finishes: { wall: "white drywall", floor: "light oak wood", palette: "warm neutral", style: "scandinavian" },
+    swatch: ["#f2efe9", "#d8bd97", "#e5d8c6"] },
+];
+
+// Instance type → the natural room phrase a scoped Kontext edit names ("Change the walls of the
+// meeting room…"). Only the enclosed/nameable scopes; anything unmapped isn't offered as a target.
+const ROOM_SCOPE_PHRASE: Record<string, string> = {
+  private_office: "private office",
+  meeting_room: "meeting room",
+  collaboration: "collaboration area",
+  phone_booth: "phone booth",
+  workstation: "open workstations",
+};
 
 const DEFAULT_DETAILED: DetailedProgram = {
   rooms: [
@@ -370,6 +406,10 @@ export default function Studio({
   const [editConfigured, setEditConfigured] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderResult, setRenderResult] = useState<string | null>(null);
+  // Per-room finish targeting: the room a refine edit is scoped to ("" = whole scene), and an
+  // honest record of which finishes were applied to which room (inspectable/reportable).
+  const [finishScope, setFinishScope] = useState<string>("");
+  const [roomFinishes, setRoomFinishes] = useState<Record<string, Record<string, string>>>({});
   // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
   // the from-fit endpoints (those read the plan + testfit, which the synthesized layout discards).
   const [adoptedFit, setAdoptedFit] = useState<{ plan: Plan; alternative: Alternative } | null>(null);
@@ -563,15 +603,20 @@ export default function Studio({
 
   // Targeted per-surface edit — swap ONE finish on the current render via Kontext, leaving the rest
   // intact. Only meaningful once a base render exists; updates the render in place so the user sees
-  // just that surface change. Records the selection in `finishes` so the panel reflects it.
-  const editSurface = async (field: string, value: string) => {
+  // just that surface change. When `scope` names a room, the edit is confined to it and recorded in
+  // `roomFinishes` (honest, per-room); a whole-scene edit records into `finishes` as before.
+  const editSurface = async (field: string, value: string, scope: string) => {
     if (!renderResult || !value) return;
     setRendering(true);
     setErr(null);
     try {
-      const { image } = await renderEditView(renderResult, field, value);
+      const { image } = await renderEditView(renderResult, field, value, scope || undefined);
       if (image) setRenderResult(image);
-      setFinishes((prev) => ({ ...prev, [field]: value }));
+      if (scope) {
+        setRoomFinishes((prev) => ({ ...prev, [scope]: { ...prev[scope], [field]: value } }));
+      } else {
+        setFinishes((prev) => ({ ...prev, [field]: value }));
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Edit failed.");
     } finally {
@@ -937,6 +982,18 @@ export default function Studio({
   const inv = layout?.inventory ?? {};
   const rooms = (layout?.rooms ?? []).filter((r) => r.label);
   const selected = versions?.alternatives.find((a) => a.id === selectedId) ?? null;
+
+  // Rooms a finish edit can be scoped to — labelled rooms from a read layout, else the distinct
+  // nameable room types in the selected generated version. Empty = only whole-scene edits offered.
+  const finishScopes = Array.from(
+    new Set(
+      rooms.length
+        ? rooms.map((r) => r.label!)
+        : (selected?.testfit.instances ?? [])
+            .map((i) => ROOM_SCOPE_PHRASE[i.type])
+            .filter(Boolean),
+    ),
+  );
 
   const STEP_ORDER: WizardStep[] = ["property", "space", "program", "visualize", "review"];
   const stepIdx = STEP_ORDER.indexOf(step);
@@ -1456,6 +1513,10 @@ export default function Studio({
               hasRender={!!renderResult}
               editConfigured={editConfigured}
               onEditSurface={editSurface}
+              scopes={finishScopes}
+              scope={finishScope}
+              onScope={setFinishScope}
+              roomFinishes={roomFinishes}
             />
           ) : (
             <Callout quiet>
@@ -1741,6 +1802,10 @@ function FinishesPanel({
   hasRender,
   editConfigured,
   onEditSurface,
+  scopes,
+  scope,
+  onScope,
+  roomFinishes,
 }: {
   finishes: Record<string, string>;
   onChange: (f: Record<string, string>) => void;
@@ -1748,30 +1813,79 @@ function FinishesPanel({
   busy: boolean;
   hasRender: boolean;
   editConfigured: boolean;
-  onEditSurface: (field: string, value: string) => void;
+  onEditSurface: (field: string, value: string, scope: string) => void;
+  scopes: string[];
+  scope: string;
+  onScope: (s: string) => void;
+  roomFinishes: Record<string, Record<string, string>>;
 }) {
   // Once a base render exists and the edit model is configured, the finish controls become TARGETED
   // edits: picking a value swaps just that surface on the current render (Kontext), rather than
   // re-composing the whole prompt. Before then they seed the full-scene "Visualize" render.
   const refining = hasRender && editConfigured;
+  // A theme is a whole-scene concept, so it's active when its bundle matches the scene finishes.
+  const activeTheme = FINISH_THEMES.find((t) =>
+    FINISH_FIELDS.every((f) => (finishes[f.key] ?? "") === (t.finishes[f.key] ?? "")),
+  )?.name;
+  // When refining a specific room, the controls reflect that room's recorded finishes.
+  const shown = refining && scope ? roomFinishes[scope] ?? {} : finishes;
   return (
     <div className="brief finishes-panel">
-      <Eyebrow style={{ display: "block", marginBottom: 12 }}>
+      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Theme</Eyebrow>
+      <div className="theme-gallery" role="radiogroup" aria-label="Finish theme">
+        {FINISH_THEMES.map((t) => {
+          const active = t.name === activeTheme;
+          return (
+            <button
+              key={t.name}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              className="theme-card"
+              data-active={active}
+              onClick={() => onChange({ ...finishes, ...t.finishes })}
+            >
+              <span className="theme-swatch" aria-hidden="true">
+                {t.swatch.map((c, i) => (
+                  <span key={i} style={{ background: c }} />
+                ))}
+              </span>
+              <span className="theme-name">{t.name}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Eyebrow style={{ display: "block", margin: "16px 0 12px" }}>
         {refining ? "Refine · per surface" : "Visualize · finishes"}
       </Eyebrow>
+      {refining && scopes.length > 0 && (
+        <div className="brief-field">
+          <span className="brief-label">Apply to</span>
+          <Segmented
+            value={scope}
+            onChange={onScope}
+            options={[{ value: "", label: "Whole scene" }, ...scopes.map((s) => ({ value: s, label: s }))]}
+          />
+        </div>
+      )}
       {FINISH_FIELDS.map((f) => (
         <div className="brief-field" key={f.key}>
           <span className="brief-label">{f.label}</span>
           <Segmented
-            value={finishes[f.key] ?? ""}
-            onChange={(v) => (refining ? onEditSurface(f.key, v) : onChange({ ...finishes, [f.key]: v }))}
+            value={shown[f.key] ?? ""}
+            onChange={(v) => (refining ? onEditSurface(f.key, v, scope) : onChange({ ...finishes, [f.key]: v }))}
             options={f.options}
           />
         </div>
       ))}
       {refining ? (
         <p className="disclaim" style={{ marginTop: 4 }}>
-          {busy ? "Editing that surface…" : "Pick a finish to change just that surface — the layout stays put."}
+          {busy
+            ? "Editing that surface…"
+            : scope
+              ? `Pick a finish to change just the ${scope} — everything else stays put.`
+              : "Pick a finish to change just that surface — the layout stays put."}
         </p>
       ) : (
         <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
@@ -1929,7 +2043,7 @@ function DetailedForm({
       ...program,
       rooms:
         count > 0
-          ? [...others, { type, count, placement: existing?.placement ?? fallback }]
+          ? [...others, { ...existing, type, count, placement: existing?.placement ?? fallback }]
           : others,
     });
   };
@@ -1937,6 +2051,14 @@ function DetailedForm({
     onChange({
       ...program,
       rooms: program.rooms.map((r) => (r.type === type ? { ...r, placement } : r)),
+    });
+  // Set (or clear) a room type's soft preferred spot — a bias the generator weights, never a pin.
+  const setPreferred = (type: RoomType, x: number | undefined, y: number | undefined) =>
+    onChange({
+      ...program,
+      rooms: program.rooms.map((r) =>
+        r.type === type ? { ...r, preferred_x: x, preferred_y: y } : r,
+      ),
     });
 
   // Live tally of the requested program — the enclosed-room count per family, updating as the
@@ -2000,11 +2122,31 @@ function DetailedForm({
                     </div>
                   </div>
                   {count > 0 && (
-                    <Segmented
-                      value={room?.placement ?? placement}
-                      onChange={(v) => setPlacement(type, v)}
-                      options={PLACEMENTS}
-                    />
+                    <>
+                      <Segmented
+                        value={room?.placement ?? placement}
+                        onChange={(v) => setPlacement(type, v)}
+                        options={PLACEMENTS}
+                      />
+                      <div className="pref-zone" role="group" aria-label={`${label} preferred zone`}>
+                        {PREFERRED_ZONES.map((z) => {
+                          const active = room?.preferred_x === z.x && room?.preferred_y === z.y;
+                          return (
+                            <button
+                              key={z.label}
+                              type="button"
+                              className="pref-cell"
+                              data-active={active}
+                              aria-pressed={active}
+                              aria-label={`Prefer ${z.label}`}
+                              onClick={() =>
+                                setPreferred(type, active ? undefined : z.x, active ? undefined : z.y)
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                 </div>
               );

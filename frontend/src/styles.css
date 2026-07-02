@@ -205,6 +205,17 @@ header.bar {
 .render-dismiss-hint { color: var(--paper); font-size: 10.5px; letter-spacing: 0.14em;
   text-transform: uppercase; opacity: 0.85; }
 .finishes-panel { margin-top: 18px; }
+/* Theme gallery — preset finish bundles as selectable cards; terracotta ring marks the active one. */
+.theme-gallery { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.theme-card { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r2);
+  cursor: pointer; text-align: left; transition: border-color 0.12s, box-shadow 0.12s; }
+.theme-card:hover { border-color: var(--accent-line); }
+.theme-card[data-active="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.theme-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-swatch { display: flex; height: 22px; border-radius: var(--r1); overflow: hidden; border: 1px solid var(--line); }
+.theme-swatch span { flex: 1; }
+.theme-name { font: var(--t-small); color: var(--ink-2); }
 .render-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r2);
   padding: 16px; max-width: 78vw; max-height: 84vh; box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: 12px; }
 .render-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
@@ -323,6 +334,14 @@ header.bar {
 .room-reqs { display: flex; flex-direction: column; gap: var(--s3); }
 .room-req { display: flex; flex-direction: column; gap: var(--s2); }
 .room-req[data-active="false"] .brief-label { color: var(--muted); }
+/* Preferred-zone mini-map — a 3x3 grid of soft placement hints; the chosen cell fills terracotta. */
+.pref-zone { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; width: 60px;
+  aspect-ratio: 1; align-self: flex-start; }
+.pref-cell { padding: 0; border: 1px solid var(--line-2); border-radius: var(--r0);
+  background: var(--paper); cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.pref-cell:hover { border-color: var(--accent-line); }
+.pref-cell[data-active="true"] { background: var(--accent); border-color: var(--accent); }
+.pref-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* iterate loop — pin rooms on the plan, regenerate keeping them */
 .ds-rule { border: none; border-top: 1px solid var(--line-2); margin: var(--s5) 0; }
