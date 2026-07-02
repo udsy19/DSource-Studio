@@ -297,7 +297,7 @@ function SceneCanvas({
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectItem(sel); }
-                  else if (e.key === "[" || e.key === "]") { e.preventDefault(); onRotateItem(sel, e.key === "]" ? 15 : -15); }
+                  else if (e.key === "[" || e.key === "]") { e.preventDefault(); onRotateItem(sel, e.key === "]" ? 45 : -45); }
                   else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); onDeleteItem(sel); }
                 }}
                 onPointerDown={(e) => {
@@ -326,7 +326,7 @@ function SceneCanvas({
           })}
 
           {/* rotate grip — a handle just outside the selected item's bbox; drag it to spin the item
-              about its centre (live preview, snap on Shift), or use ←/→ · [ ] for 15° steps. */}
+              about its centre (live preview, snap on Shift), or use ←/→ · [ ] for 45° steps. */}
           {selectedItemKey && (() => {
             const it = items.find((g) => g.key === selectedItemKey);
             if (!it) return null;
@@ -355,8 +355,8 @@ function SceneCanvas({
                   aria-valuemin={0}
                   aria-valuemax={360}
                   onKeyDown={(e) => {
-                    if (e.key === "ArrowLeft" || e.key === "[") { e.preventDefault(); onRotateItem(sel, -15); }
-                    else if (e.key === "ArrowRight" || e.key === "]") { e.preventDefault(); onRotateItem(sel, 15); }
+                    if (e.key === "ArrowLeft" || e.key === "[") { e.preventDefault(); onRotateItem(sel, -45); }
+                    else if (e.key === "ArrowRight" || e.key === "]") { e.preventDefault(); onRotateItem(sel, 45); }
                   }}
                   onPointerDown={(e) => {
                     e.stopPropagation(); // rotate, not a canvas pan or item move
