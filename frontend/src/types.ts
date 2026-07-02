@@ -349,3 +349,128 @@ export interface CatalogSetting {
   source_category?: string | null;
   furniture: SettingFurniture[];
 }
+
+// ── Semantic scene (the Studio editor over POST /api/scene/*) ──
+// The structured, catalog-backed scene: a locked base building (underlay) + editable generated
+// zones / partitions / doors / furniture placements. A zone's room_type is the scene vocabulary
+// (private_office | meeting_room | collaboration | open). Mirrors backend/app/scene/model.py.
+export type SceneRoomType = "private_office" | "meeting_room" | "collaboration" | "open";
+
+export interface SceneUnderlay {
+  boundary: [number, number][];
+  cores: [number, number][][];
+  columns: [number, number][];
+  base_doors: { x: number; y: number; width: number; rotation: number }[];
+}
+
+export interface SceneZone {
+  id: string;
+  polygon: [number, number][];
+  room_type: string;
+  enclosed: boolean;
+  program_line_ref: string | null;
+  boundary_partition_ids: string[];
+}
+
+export interface ScenePartition {
+  id: string;
+  segment: [[number, number], [number, number]];
+  generated: boolean;
+}
+
+export interface SceneDoor {
+  id: string;
+  host_partition_id: string;
+  offset: number;
+  width: number;
+  swing: string; // "left" | "right" — the hinge side
+}
+
+export interface SceneTransform {
+  x: number;
+  y: number;
+  rotation: number;
+}
+
+export interface ScenePlacementItem {
+  plate_item_ref: number;
+  transform_override: SceneTransform | null;
+  deleted: boolean;
+}
+
+export interface ScenePlacement {
+  id: string;
+  zone_id: string;
+  plate_id: string;
+  transform: SceneTransform; // world-feet origin = the zone's min-corner
+  items: ScenePlacementItem[];
+}
+
+export interface ScenePlateItem {
+  category: string;
+  model: string | null;
+  dx: number;
+  dy: number;
+  w: number;
+  h: number;
+  rotation: number;
+}
+
+export interface ScenePlate {
+  id: string;
+  room_type: string;
+  sqft: number;
+  width_ft: number;
+  height_ft: number;
+  capacity: number;
+  items: ScenePlateItem[];
+}
+
+export interface SceneProgramLine {
+  room_type: string;
+  target: number;
+  label: string | null;
+}
+
+export interface SceneProgram {
+  lines: SceneProgramLine[];
+  headcount: number | null;
+  density_rsf_per_person: number | null;
+}
+
+export interface Scene {
+  underlay: SceneUnderlay;
+  zones: SceneZone[];
+  partitions: ScenePartition[];
+  doors: SceneDoor[];
+  placements: ScenePlacement[];
+  plates: Record<string, ScenePlate>;
+  program_ref: SceneProgram;
+}
+
+// Scoreboard from compute_scene_metrics — seats/areas/density + program actual-vs-target per line.
+export interface SceneMetrics {
+  seats: number;
+  open_seats: number;
+  enclosed_seats: number;
+  usable_sf: number;
+  density_sf_per_person: number;
+  rooms: number;
+  rooms_by_type: Record<string, number>;
+  program: {
+    headcount: number | null;
+    density_rsf_per_person: number | null;
+    lines: { room_type: string; label: string | null; target: number; actual: number }[];
+  };
+}
+
+// One editor mutation, sent to POST /api/scene/apply. Plate-taking commands carry a plate_id
+// (a library setting id), resolved to real geometry server-side.
+export type SceneCommand =
+  | { type: "change_room_type"; zone_id: string; new_type: string }
+  | { type: "swap_plate"; placement_id: string; plate_id: string };
+
+export interface SceneState {
+  scene: Scene;
+  metrics: SceneMetrics;
+}

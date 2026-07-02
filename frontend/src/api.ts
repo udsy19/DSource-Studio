@@ -310,6 +310,81 @@ export const downloadIfcFromFit = (b: FitExport) =>
 export const downloadDxfFromFit = (b: FitExport) =>
   postFit("/api/testfit/dxf-from-fit", b, "test-fit.dxf");
 
+// ── Semantic scene editor (POST /api/scene/*) ──
+type Scene = import("./types").Scene;
+type SceneState = import("./types").SceneState;
+
+// A rejected edit — carries the backend's machine `code` + human message (422 detail) so the UI can
+// show WHY without guessing, and the caller keeps its prior snapshot.
+export class SceneCommandError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "SceneCommandError";
+    this.code = code;
+  }
+}
+
+// Build an editable scene from a generated version (plan + testfit, optionally a program for the
+// scoreboard targets). The base building becomes the locked underlay.
+export async function sceneFromFit(
+  plan: import("./types").Plan,
+  testfit: import("./types").Alternative["testfit"],
+  program?: unknown,
+): Promise<SceneState> {
+  const res = await fetch("/api/scene/from-fit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(program != null ? { plan, testfit, program } : { plan, testfit }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
+// Apply ONE command to the scene. On rejection the backend returns 422 {detail:{code,message}} and
+// leaves the scene unchanged — surfaced here as a SceneCommandError so the caller keeps its snapshot.
+export async function applySceneCommand(
+  scene: Scene,
+  command: import("./types").SceneCommand,
+): Promise<SceneState> {
+  const res = await fetch("/api/scene/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scene, command }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))).detail;
+    if (detail && typeof detail === "object" && "code" in detail) {
+      throw new SceneCommandError(String(detail.code), String(detail.message ?? "Edit rejected."));
+    }
+    throw new Error(typeof detail === "string" ? detail : res.statusText);
+  }
+  return res.json();
+}
+
+// Recompute the scoreboard for a scene (used by undo/redo restores — no server-side mutation).
+export async function sceneMetrics(scene: Scene): Promise<import("./types").SceneMetrics> {
+  const res = await fetch("/api/scene/metrics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scene }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? res.statusText);
+  return res.json();
+}
+
+// Compile the current scene to a DXF and download it (underlay passthrough + generated design).
+export async function downloadSceneDxf(scene: Scene): Promise<void> {
+  await downloadBlob(
+    await fetch("/api/scene/dxf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scene }),
+    }),
+    "design.dxf",
+  );
+}
+
 export async function downloadReport(reportData: {
   project: import("./types").ReportProject;
   plan: import("./types").Plan;
