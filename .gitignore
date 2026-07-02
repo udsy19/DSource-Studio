@@ -47,3 +47,4 @@ frontend/.vite/
 # Steelcase application library (DWGs + built settings.json) — licensing, not committed
 steelcase/
 steelcase-dxf/
+frontend/node_modules

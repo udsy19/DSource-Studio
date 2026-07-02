@@ -290,7 +290,7 @@ def _metrics_sidebar(c: canvas.Canvas, x: float, y: float, m: dict) -> None:
         ("Conference rooms", _fmt(m.get("conf_rooms"))),
         ("Density", _fmt(m.get("density_sf_per_person"), " sf/person", decimals=0)),
         ("Daylight", _fmt(m.get("daylight_pct"), "%", decimals=0)),
-        ("Privacy", _fmt(m.get("privacy_pct"), "%", decimals=0)),
+        ("Privacy (est.)", _fmt(m.get("privacy_pct"), "%", decimals=0)),
         ("Efficiency", _fmt(m.get("efficiency_pct"), "%", decimals=0)),
     ]
     ry = y - 86
@@ -465,7 +465,7 @@ SUMMARY_ROWS = [
     ("Conference rooms", "conf_rooms", "", None),
     ("Density (sf/person)", "density_sf_per_person", "", 0),
     ("Daylight", "daylight_pct", "%", 0),
-    ("Privacy", "privacy_pct", "%", 0),
+    ("Privacy (est.)", "privacy_pct", "%", 0),
     ("Efficiency", "efficiency_pct", "%", 0),
 ]
 

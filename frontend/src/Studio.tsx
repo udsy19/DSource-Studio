@@ -2432,7 +2432,8 @@ function VersionCard({
           </span>
           <MetricRow label="Density" value={`${num(alt.metrics.density_sf_per_person)} sf/p`} />
           <MetricRow label="Daylight" value={pct(alt.metrics.daylight_pct)} />
-          <MetricRow label="Privacy" value={pct(alt.metrics.privacy_pct)} />
+          {/* privacy is a planning-heuristic estimate (privacy_basis) — flag it, don't imply precision */}
+          <MetricRow label="Privacy" value={`~${pct(alt.metrics.privacy_pct)}`} />
           <MetricRow label="Efficiency" value={pct(alt.metrics.efficiency_pct)} />
         </span>
       </button>
