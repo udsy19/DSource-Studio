@@ -111,6 +111,11 @@ header.bar {
 .layout-furn:is(:hover, :focus-visible, .is-selected)
   :is(rect, circle, path, line, polyline, polygon) { stroke: var(--accent); }
 .layout-furn.is-selected polygon { fill: var(--accent-soft); }
+/* the selected item eases to its committed pose after a gesture — so a server clamp (settle) or a
+   rejected command (snap-back to the pre-gesture pose) reads as a motion, not a jump. Suppressed
+   during the drag itself (is-dragging) so the item tracks the pointer 1:1 at 60fps. */
+.layout-furn.is-selected { transition: transform 130ms var(--ease); }
+.layout-furn.is-dragging { transition: none; }
 
 /* selectable door — hover/focus/selected shifts the swing to the accent, like furniture */
 .layout-door { cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }

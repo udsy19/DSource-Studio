@@ -77,6 +77,7 @@ const snap45 = (deg: number) => (((Math.round(deg / 45) * 45) % 360) + 360) % 36
 type WorldItem = {
   key: string;
   placement_id: string;
+  zone_id: string;
   item_ref: number;
   category: string;
   x: number;
@@ -84,6 +85,20 @@ type WorldItem = {
   w: number;
   h: number;
   rotation: number;
+};
+
+// Keep a dragged item inside its zone's bounding box (a UX hint mirroring the server's
+// clamp_local_into_zone — the server stays the authority; this only stops furniture visually
+// crossing a wall mid-drag). Returns the delta clamped so the item's footprint stays within bounds.
+const clampDeltaToZone = (
+  it: WorldItem,
+  [zx0, zy0, zx1, zy1]: [number, number, number, number],
+  dx: number,
+  dy: number,
+): { dx: number; dy: number } => {
+  const nx = Math.min(Math.max(it.x + dx, zx0), Math.max(zx0, zx1 - it.w));
+  const ny = Math.min(Math.max(it.y + dy, zy0), Math.max(zy0, zy1 - it.h));
+  return { dx: nx - it.x, dy: ny - it.y };
 };
 
 // Every non-deleted placed item in world feet — the frontend mirror of scene.geometry.resolved_items:
@@ -101,6 +116,7 @@ function resolveItems(scene: Scene): WorldItem[] {
       out.push({
         key: itemKey(pl.id, it.plate_item_ref),
         placement_id: pl.id,
+        zone_id: pl.zone_id,
         item_ref: it.plate_item_ref,
         category: base.category,
         x: pl.transform.x + (t ? t.x : base.dx),
@@ -174,6 +190,10 @@ function SceneCanvas({
   const partitionById = useMemo(
     () => new Map(scene.partitions.map((p) => [p.id, p] as const)),
     [scene.partitions],
+  );
+  const zoneBoundsById = useMemo(
+    () => new Map(scene.zones.map((z) => [z.id, polygonBounds(z.polygon)] as const)),
+    [scene.zones],
   );
   const selectedItemKey = selectedItem ? itemKey(selectedItem.placement_id, selectedItem.item_ref) : null;
 
@@ -293,7 +313,7 @@ function SceneCanvas({
             return (
               <g
                 key={`item-${it.key}`}
-                className={`layout-furn is-movable${selected ? " is-selected" : ""}`}
+                className={`layout-furn is-movable${selected ? " is-selected" : ""}${dragging ? " is-dragging" : ""}`}
                 role="button"
                 tabIndex={0}
                 aria-pressed={selected}
@@ -320,7 +340,9 @@ function SceneCanvas({
                   if (!s || s.key !== it.key) return;
                   const d = api.worldDelta({ x: s.x, y: s.y }, { x: e.clientX, y: e.clientY });
                   if (Math.abs(d.dx) > MOVE_MIN_FT || Math.abs(d.dy) > MOVE_MIN_FT) s.moved = true;
-                  setDrag({ key: it.key, dx: d.dx, dy: d.dy });
+                  const zb = zoneBoundsById.get(it.zone_id);
+                  const c = zb ? clampDeltaToZone(it, zb, d.dx, d.dy) : d;
+                  setDrag({ key: it.key, dx: c.dx, dy: c.dy });
                 }}
                 onPointerUp={() => {
                   const s = dragStart.current;
