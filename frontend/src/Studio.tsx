@@ -1599,26 +1599,20 @@ export default function Studio({
         )}
 
         {step === "visualize" && (
-          renderReady ? (
-            <FinishesPanel
-              finishes={finishes}
-              onChange={setFinishes}
-              onVisualize={visualize}
-              busy={rendering}
-              hasRender={!!renderResult}
-              editConfigured={editConfigured}
-              onEditSurface={editSurface}
-              scopes={finishScopes}
-              scope={finishScope}
-              onScope={setFinishScope}
-              roomFinishes={roomFinishes}
-            />
-          ) : (
-            <Callout quiet>
-              Photoreal render needs a provider key (RENDER_API_KEY or REPLICATE_API_TOKEN) in the backend.
-              You can still set finishes and generate the test-fits.
-            </Callout>
-          )
+          <FinishesPanel
+            finishes={finishes}
+            onChange={setFinishes}
+            onVisualize={visualize}
+            busy={rendering}
+            renderReady={renderReady}
+            hasRender={!!renderResult}
+            editConfigured={editConfigured}
+            onEditSurface={editSurface}
+            scopes={finishScopes}
+            scope={finishScope}
+            onScope={setFinishScope}
+            roomFinishes={roomFinishes}
+          />
         )}
 
         {step === "review" && (
@@ -1891,6 +1885,7 @@ function FinishesPanel({
   onChange,
   onVisualize,
   busy,
+  renderReady,
   hasRender,
   editConfigured,
   onEditSurface,
@@ -1903,6 +1898,7 @@ function FinishesPanel({
   onChange: (f: Record<string, string>) => void;
   onVisualize: () => void;
   busy: boolean;
+  renderReady: boolean;
   hasRender: boolean;
   editConfigured: boolean;
   onEditSurface: (field: string, value: string, scope: string) => void;
@@ -1911,20 +1907,21 @@ function FinishesPanel({
   onScope: (s: string) => void;
   roomFinishes: Record<string, Record<string, string>>;
 }) {
-  // Once a base render exists and the edit model is configured, the finish controls become TARGETED
-  // edits: picking a value swaps just that surface on the current render (Kontext), rather than
-  // re-composing the whole prompt. Before then they seed the full-scene "Visualize" render.
+  // Collapsed by default: the Visualize step is just "pick a style → Next". Per-surface finishes +
+  // the photoreal render are OPTIONAL, behind a disclosure — a temporary theme for this submission,
+  // never required to advance. Once a base render exists AND the edit model is configured, the finish
+  // controls become TARGETED Kontext edits (change one surface on the current render).
   const refining = hasRender && editConfigured;
-  // A theme is a whole-scene concept, so it's active when its bundle matches the scene finishes.
+  const [showFinishes, setShowFinishes] = useState(false);
+  const advanced = refining || showFinishes;
   const activeTheme = FINISH_THEMES.find((t) =>
     FINISH_FIELDS.every((f) => (finishes[f.key] ?? "") === (t.finishes[f.key] ?? "")),
   )?.name;
-  // When refining a specific room, the controls reflect that room's recorded finishes.
   const shown = refining && scope ? roomFinishes[scope] ?? {} : finishes;
   return (
     <div className="brief finishes-panel">
-      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Theme</Eyebrow>
-      <div className="theme-gallery" role="radiogroup" aria-label="Finish theme">
+      <Eyebrow style={{ display: "block", marginBottom: 12 }}>Style</Eyebrow>
+      <div className="theme-gallery" role="radiogroup" aria-label="Visual style">
         {FINISH_THEMES.map((t) => {
           const active = t.name === activeTheme;
           return (
@@ -1947,44 +1944,68 @@ function FinishesPanel({
           );
         })}
       </div>
+      <p className="disclaim" style={{ marginTop: 12 }}>
+        Pick a style, then continue to Review. Finishes &amp; a photoreal preview are optional.
+      </p>
 
-      <Eyebrow style={{ display: "block", margin: "16px 0 12px" }}>
-        {refining ? "Refine · per surface" : "Visualize · finishes"}
-      </Eyebrow>
-      {refining && scopes.length > 0 && (
-        <div className="brief-field">
-          <span className="brief-label">Apply to</span>
-          <Segmented
-            label="Apply finishes to"
-            value={scope}
-            onChange={onScope}
-            options={[{ value: "", label: "Whole scene" }, ...scopes.map((s) => ({ value: s, label: s }))]}
-          />
-        </div>
-      )}
-      {FINISH_FIELDS.map((f) => (
-        <div className="brief-field" key={f.key}>
-          <span className="brief-label">{f.label}</span>
-          <Segmented
-            label={f.label}
-            value={shown[f.key] ?? ""}
-            onChange={(v) => (refining ? onEditSurface(f.key, v, scope) : onChange({ ...finishes, [f.key]: v }))}
-            options={f.options}
-          />
-        </div>
-      ))}
-      {refining ? (
-        <p className="disclaim" style={{ marginTop: 4 }}>
-          {busy
-            ? "Editing that surface…"
-            : scope
-              ? `Pick a finish to change just the ${scope} — everything else stays put.`
-              : "Pick a finish to change just that surface — the layout stays put."}
-        </p>
-      ) : (
-        <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
-          {busy ? "Rendering…" : "Visualize"}
+      {/* Optional: per-surface finishes + render. Hidden until asked for (or once a render exists). */}
+      {!refining && (
+        <button
+          type="button"
+          className="link-btn"
+          aria-expanded={showFinishes}
+          style={{ marginTop: 4 }}
+          onClick={() => setShowFinishes((v) => !v)}
+        >
+          {showFinishes ? "Hide finishes & render" : "Refine finishes & render (optional)"}
         </button>
+      )}
+
+      {advanced && (
+        <>
+          <Eyebrow style={{ display: "block", margin: "16px 0 12px" }}>
+            {refining ? "Refine · per surface" : "Finishes"}
+          </Eyebrow>
+          {refining && scopes.length > 0 && (
+            <div className="brief-field">
+              <span className="brief-label">Apply to</span>
+              <Segmented
+                label="Apply finishes to"
+                value={scope}
+                onChange={onScope}
+                options={[{ value: "", label: "Whole scene" }, ...scopes.map((s) => ({ value: s, label: s }))]}
+              />
+            </div>
+          )}
+          {FINISH_FIELDS.map((f) => (
+            <div className="brief-field" key={f.key}>
+              <span className="brief-label">{f.label}</span>
+              <Segmented
+                label={f.label}
+                value={shown[f.key] ?? ""}
+                onChange={(v) => (refining ? onEditSurface(f.key, v, scope) : onChange({ ...finishes, [f.key]: v }))}
+                options={f.options}
+              />
+            </div>
+          ))}
+          {refining ? (
+            <p className="disclaim" style={{ marginTop: 4 }}>
+              {busy
+                ? "Editing that surface…"
+                : scope
+                  ? `Pick a finish to change just the ${scope} — everything else stays put.`
+                  : "Pick a finish to change just that surface — the layout stays put."}
+            </p>
+          ) : renderReady ? (
+            <button className="ds-btn ds-btn--primary brief-go" onClick={onVisualize} disabled={busy}>
+              {busy ? "Rendering…" : "Visualize"}
+            </button>
+          ) : (
+            <p className="disclaim" style={{ marginTop: 4 }}>
+              A photoreal render needs a provider key (RENDER_API_KEY or REPLICATE_API_TOKEN) in the backend.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
