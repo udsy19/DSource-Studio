@@ -72,4 +72,6 @@ def generate_from_concept(plan: PlanModel, concept: ConceptProgram, n: int = 3) 
     variants spread around it. Same `AlternativesResult` dict shape as /api/testfit/alternatives.
     """
     program, spec = concept_to_specs(concept, plan)
-    return generate_alternatives(plan, program=program, n=n, spec=spec)
+    return generate_alternatives(
+        plan, program=program, n=n, spec=spec, target_privacy=concept.closed_ratio
+    )

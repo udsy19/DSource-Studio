@@ -71,3 +71,14 @@ Persona-aware onboarding (pro vs end-client); saved projects; read-only "share a
 
 ## GTM note (from research)
 Monetize the **GCC/workplace fit-out wedge first** — concentrated, high-ticket, and it matches the existing test-fit→BOM→RFQ→PO engine — with residential Explore as top-of-funnel. **SaaS (~₹999–2,499/mo) is the day-one revenue floor; vendor commission is upside** (India affiliate rates are thin, 5–11%). Official brand feeds are the endgame flywheel, earned by routing demand — not a day-1 dependency.
+
+---
+
+## Test-fit generator quality — vs qbiq's 300M-sqft engine
+We do **not** clone qbiq's learned engine (we have no India test-fit corpus to train on, and the procedural placer fits the "human edits a structured scene" architecture). The moat is downstream — every generated box resolves to a real, priced, sourceable SKU. So generator quality only needs to clear **"credible first draft."** Tiered plan:
+
+- **Tier 0 — variant scoring & ranking. DONE.** The three A/B/C variants (already composition-diverse) are now folded into one auditable composite score (`backend/app/testfit/scoring.py`), ranked, with exactly one **recommended** pick surfaced in the UI. Weights: program_match 0.50 (fidelity leads — a denser variant that ignores an enclosed brief must not win on packing alone), daylight 0.20, seat_yield 0.15 (batch-relative), efficiency 0.15. `program_match` is **per-type** (mean of `min(1, placed[t]/requested[t])`) so dropping a requested room actually costs the variant — an aggregate ratio would let overshooting one type hide a dropped boardroom. A regression test asserts an open-plan vs enclosed program recommend **different** variants, so the weights aren't a fixed opinion dressed as analysis.
+- **Tier 1 — deferred.** Spatial placement diversity (variants exploring different room *arrangements*, not just compositions); a greedy-gap second placement pass (fill leftover perimeter wall + compact); adjacency-lite relationship rules; door + corridor derivation. Each touches geometry and needs its own regression tests.
+- **Tier 2 — deferred.** Skewed-wall support (real correctness on non-orthogonal plates); CP-SAT / annealing packing. Only if density/geometry becomes the pitch.
+
+The **editor is the data flywheel** Tier 1+ depends on: every human edit of a generated layout is a labeled "machine got this wrong → here's right" pair on India-market plates. Instrument it before investing in learned generation.

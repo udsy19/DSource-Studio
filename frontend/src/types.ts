@@ -176,6 +176,11 @@ export interface Alternative {
     collab_count?: number;
   };
   metrics: Metrics;
+  // Composite fit score [0,1] + its auditable parts; exactly one alternative per batch is
+  // `recommended`. Scores are batch-relative — comparable only within one generation.
+  score: number;
+  recommended: boolean;
+  score_breakdown: { program_match: number; seat_yield: number; daylight: number; efficiency: number };
 }
 
 export interface AlternativesResponse {

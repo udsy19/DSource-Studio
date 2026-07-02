@@ -997,7 +997,7 @@ export default function Studio({
       }
       const res = job.result;
       setVersions(res);
-      setSelectedId(res.alternatives[0]?.id ?? null);
+      setSelectedId(res.alternatives.find((a) => a.recommended)?.id ?? res.alternatives[0]?.id ?? null);
       if (res.alternatives.length === 0) {
         onStatus?.("draft");
         setErr("No test-fit versions could be generated for this plate + program. Try adjusting the program.");
@@ -1021,7 +1021,7 @@ export default function Studio({
     try {
       const res = await iterateDetailed({ plan: versions.plan, program: detailed, locked: pinned });
       setVersions(res);
-      setSelectedId(res.alternatives[0]?.id ?? null);
+      setSelectedId(res.alternatives.find((a) => a.recommended)?.id ?? res.alternatives[0]?.id ?? null);
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
     } finally {
@@ -1763,7 +1763,7 @@ export default function Studio({
                       >
                         {versions.alternatives.map((a) => (
                           <option key={a.id} value={a.id}>
-                            Option {a.id} · {num(a.metrics.seats)} seats
+                            Option {a.id} · {num(a.metrics.seats)} seats{a.recommended ? " · recommended" : ""}
                           </option>
                         ))}
                       </select>
@@ -2667,6 +2667,11 @@ function VersionCard({
         aria-pressed={selected}
         onClick={onSelect}
       >
+        {alt.recommended && (
+          // The score rides with the badge on purpose — A/B/C differ only by density preset, so
+          // wins can be close; showing the number lets the user read it as a call, not a decree.
+          <span className="version-badge">Recommended · {pct(alt.score)} match</span>
+        )}
         <span className="version-thumb">
           <PlanCanvas plan={plan} instances={alt.testfit.instances} compact />
         </span>
@@ -2675,6 +2680,7 @@ function VersionCard({
             <span className="version-seats-n">{num(alt.metrics.seats)}</span>
             <span className="version-seats-k">seats</span>
           </span>
+          <MetricRow label="Match" value={pct(alt.score)} />
           <MetricRow label="Density" value={`${num(alt.metrics.density_sf_per_person)} sf/p`} />
           <MetricRow label="Daylight" value={pct(alt.metrics.daylight_pct)} />
           {/* privacy is a planning-heuristic estimate (privacy_basis) — flag it, don't imply precision */}

@@ -402,6 +402,7 @@ header.bar {
 .versions { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
 .version-item { display: flex; list-style: none; }
 .version-card {
+  position: relative;
   display: flex; gap: var(--s4); align-items: stretch; text-align: left; width: 100%;
   background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r2);
   padding: var(--s3); cursor: pointer;
@@ -411,6 +412,11 @@ header.bar {
 .version-card:hover { border-color: var(--accent-line); }
 .version-card.is-selected { border-color: var(--accent); background: var(--accent-soft); }
 .version-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.version-badge {
+  position: absolute; top: 0; right: var(--s3); transform: translateY(-50%);
+  padding: 3px 9px; border-radius: var(--r-pill); background: var(--accent); color: var(--paper);
+  font: 600 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
 
 .version-thumb {
   flex: 0 0 96px; width: 96px; height: 96px; display: block;

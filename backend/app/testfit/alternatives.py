@@ -25,6 +25,13 @@ from .layout import (
 )
 from .metrics import compute_metrics
 from .payloads import plan_payload, testfit_payload
+from .scoring import score_variants
+
+
+def _privacy_match(privacy_pct: float, target: float) -> float:
+    """Dial-intent fidelity for dial-driven variants: how close the variant's enclosed-occupant
+    share lands to the target the program implied. 1.0 at target, falling to 0 a half off it."""
+    return 1.0 - min(1.0, abs(privacy_pct - target) / 0.5)
 
 
 def _variants(
@@ -73,21 +80,28 @@ def generate_alternatives(
     program: ProgramSpec | None = None,
     n: int = 3,
     spec: WorkstationSpec | None = None,
+    target_privacy: float | None = None,
 ) -> dict:
-    """Generate up to `n` (default 3) distinct scored test-fits for one floor plate.
+    """Generate up to `n` (default 3) distinct scored, ranked test-fits for one floor plate.
 
     Each alternative = `generate_mixed_layout` under a varied program/spec, scored by
-    `compute_metrics`. Deterministic: identical input -> identical output. `spec` sets the base
-    desk geometry the variants spread around (defaults to engine defaults when omitted).
+    `compute_metrics` then ranked by `score_variants`. `target_privacy` is the enclosed-occupant
+    share the program intends (the Concept dial passes its `closed_ratio`); when omitted it falls
+    back to the base program's private-office ratio. Deterministic: identical input -> identical
+    output. `spec` sets the base desk geometry the variants spread around.
     """
     base = program or ProgramSpec()
     base_spec = spec or WorkstationSpec()
+    target = target_privacy if target_privacy is not None else base.private_office_ratio
     alternatives = []
     for alt_id, prog, spec in _variants(base, base_spec)[:n]:
         fit = generate_mixed_layout(plan, spec, prog)
+        metrics = compute_metrics(plan, fit)
         alternatives.append({
             "id": alt_id,
             "testfit": testfit_payload(fit),
-            "metrics": compute_metrics(plan, fit),
+            "metrics": metrics,
+            "program_match": _privacy_match(metrics["privacy_pct"], target),
         })
+    score_variants(alternatives)
     return {"plan": plan_payload(plan), "alternatives": alternatives}

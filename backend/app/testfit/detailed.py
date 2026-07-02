@@ -46,6 +46,7 @@ from .layout import (
 from .metrics import compute_metrics
 from .payloads import plan_payload, testfit_payload
 from .rooms import RoomSpec, place_perimeter_rooms
+from .scoring import score_variants
 from .settings import Setting, load_settings
 from .zones import place_interior_rooms
 
@@ -309,6 +310,20 @@ _VARIANTS: list[tuple[str, float, float]] = [
 ]
 
 
+def _program_match(placed: dict[str, int], requested: dict[str, int]) -> float:
+    """How faithfully a variant honoured the EXPLICIT request, per requested type (not aggregate).
+
+    mean over requested types of min(1, placed[t] / requested[t]). Per-type so dropping a
+    requested room actually costs the variant and overplacing another type can't compensate — an
+    aggregate sum(placed)/sum(requested) would let two extra huddles paper over a dropped boardroom.
+    No rooms requested (open plan) -> 1.0.
+    """
+    types = [t for t, r in requested.items() if r > 0]
+    if not types:
+        return 1.0
+    return sum(min(1.0, placed.get(t, 0) / requested[t]) for t in types) / len(types)
+
+
 def _locked_instances(locked: list[dict] | None) -> list[FurnitureInstance]:
     """Parse pinned instances (from a prior version's payload) into FurnitureInstances."""
     return [
@@ -346,5 +361,7 @@ def generate_from_detailed(
             "id": alt_id,
             "testfit": testfit_payload(fit),
             "metrics": compute_metrics(plan, fit),
+            "program_match": _program_match(fit.program["placed"], fit.program["requested"]),
         })
+    score_variants(alternatives)
     return {"plan": plan_payload(plan), "alternatives": alternatives}
