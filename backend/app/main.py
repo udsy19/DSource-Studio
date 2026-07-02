@@ -14,7 +14,7 @@ from .realdata import apply_coop_hmi_band, ingest_hm_pricebooks
 from .routers import (
     alternatives, brief, cad, catalog, coop, floorplan, floorplan_raster, generate,
     generate_detailed, gsa, ifc, ingest, ingest_cad, ingest_raster, layout_takeoff, library, match,
-    procurement, projects, quote, render, report, source, takeoff, testfit, version_export,
+    procurement, projects, quote, render, report, scene, source, takeoff, testfit, version_export,
     wellcatalog,
 )
 from .seed import seed
@@ -108,6 +108,7 @@ app.include_router(procurement.router) # Studio: smart procurement (RFQ → PO)
 app.include_router(cad.router)         # CAD viewer: faithful 2D SVG + 3D geometry of the drawing
 app.include_router(match.router)       # DSource AI: catalog match (text/image -> real products)
 app.include_router(source.router)      # DSource AI: test-fit -> real India SKUs (INR sourcing)
+app.include_router(scene.router)       # Studio editor: semantic scene model (apply/from-fit/metrics/dxf)
 
 
 @app.get("/api/health")
