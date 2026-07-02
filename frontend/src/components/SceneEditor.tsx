@@ -12,6 +12,7 @@ import {
 import { ArrangementThumb, captureSvgJpeg, SLOT_CATS } from "../Studio";
 import { saveEditedDesign } from "../workflowProjects";
 import { closeRing } from "../fitToLayout";
+import { rotateGestureCommand, snap45 } from "./sceneGestures";
 import { Callout, Eyebrow, Segmented } from "../design/ui";
 import type {
   Alternative,
@@ -62,17 +63,6 @@ const roomTypeLabel = (rt: string) =>
 const itemKey = (placementId: string, itemRef: number) => `${placementId}:${itemRef}`;
 type ItemSelection = { placement_id: string; item_ref: number };
 
-// Normalize a rotation delta to (-180, 180] so a grip-drag sends the short way round.
-const normalizeDelta = (deg: number) => {
-  const x = ((deg % 360) + 360) % 360;
-  return x > 180 ? x - 360 : x;
-};
-
-// The backend snaps every rotation to 45° (_snap_45), so the live grip preview snaps to the same
-// grid — a small drag visibly clicks to the next detent instead of silently rounding home (which
-// read as "rotate is broken"). A bare click on the grip (no drag) rotates +90°, a Canva idiom.
-const CLICK_ROTATE_DEG = 90;
-const snap45 = (deg: number) => (((Math.round(deg / 45) * 45) % 360) + 360) % 360;
 
 type WorldItem = {
   key: string;
@@ -413,12 +403,9 @@ function SceneCanvas({
                   onPointerUp={() => {
                     const rs = rotateStart.current;
                     if (rs?.key === it.key) {
-                      if (!rs.moved) {
-                        onRotateItem(sel, CLICK_ROTATE_DEG); // bare click → +90° detent
-                      } else if (rotating?.key === it.key) {
-                        const delta = normalizeDelta(rotating.deg - it.rotation);
-                        if (delta !== 0) onRotateItem(sel, delta);
-                      }
+                      const preview = rotating?.key === it.key ? rotating.deg : null;
+                      const delta = rotateGestureCommand(rs.moved, preview, it.rotation);
+                      if (delta !== null) onRotateItem(sel, delta);
                     }
                     rotateStart.current = null;
                     setRotating(null);
