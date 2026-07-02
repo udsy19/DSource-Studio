@@ -17,6 +17,16 @@ export interface EditedDesign {
   updatedAt: number;
 }
 
+// The generated test-fit set for a project: the plan is stored ONCE (not duplicated onto every
+// alternative), and only the SURFACED alternatives are kept (never the wider internal candidate pool
+// the scorer culls). Replaced wholesale on a re-generation; edits never touch it (they fork into
+// editedDesigns[]), so a generated version is never overwritten by an edit.
+export interface GeneratedResult {
+  plan: unknown;
+  alternatives: unknown[];
+  updatedAt: number;
+}
+
 export interface WorkflowProject {
   id: string;
   name: string;
@@ -25,6 +35,7 @@ export interface WorkflowProject {
   status: ProjectStatus;
   createdAt: number; // epoch ms
   updatedAt: number;
+  generatedAlternatives?: GeneratedResult;
   editedDesigns?: EditedDesign[];
 }
 
@@ -70,6 +81,38 @@ export function deleteProject(id: string): void {
   write(read().filter((p) => p.id !== id));
 }
 
+export function getProject(id: string): WorkflowProject | undefined {
+  return read().find((p) => p.id === id);
+}
+
+// The one quota-safe write both persist paths share: a full scene or a generated set can exceed the
+// ~5MB localStorage quota, and a design tool that silently loses work is dead — so surface a full
+// store as a visible failure instead of dropping the write.
+function safeWrite(projects: WorkflowProject[]): { ok: true } | { ok: false; error: string } {
+  try {
+    write(projects);
+    return { ok: true };
+  } catch (e) {
+    const quota = e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22);
+    return { ok: false, error: quota ? "Couldn't save — browser storage is full." : "Couldn't save." };
+  }
+}
+
+// Persist a project's generated test-fit set (from Submit). Replaces any prior set — regeneration is
+// a fresh Submit, and edits live separately in editedDesigns[], so this never overwrites an edit.
+export function saveGeneratedAlternatives(
+  projectId: string,
+  result: { plan: unknown; alternatives: unknown[] },
+): { ok: true } | { ok: false; error: string } {
+  const projects = read();
+  if (!projects.some((p) => p.id === projectId)) return { ok: false, error: "Project not found." };
+  const gen: GeneratedResult = { plan: result.plan, alternatives: result.alternatives, updatedAt: Date.now() };
+  const next = projects.map((p) =>
+    p.id === projectId ? { ...p, generatedAlternatives: gen, status: "ready" as ProjectStatus, updatedAt: Date.now() } : p,
+  );
+  return safeWrite(next);
+}
+
 export function listEditedDesigns(projectId: string): EditedDesign[] {
   const p = read().find((x) => x.id === projectId);
   return (p?.editedDesigns ?? []).slice().sort((a, b) => b.updatedAt - a.updatedAt);
@@ -92,11 +135,5 @@ export function saveEditedDesign(
       ? { ...p, editedDesigns: [...rest, design], updatedAt: Date.now(), status: "ready" as ProjectStatus }
       : p,
   );
-  try {
-    write(next);
-    return { ok: true };
-  } catch (e) {
-    const quota = e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22);
-    return { ok: false, error: quota ? "Couldn't save — browser storage is full." : "Couldn't save this design." };
-  }
+  return safeWrite(next);
 }
