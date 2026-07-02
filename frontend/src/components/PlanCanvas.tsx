@@ -8,6 +8,7 @@ import type {
   Plan,
   WallType,
 } from "../types";
+import { closeRing } from "../fitToLayout";
 import { furnitureSymbol } from "./furnitureSymbols";
 
 // Two modes: the generated fit (plan + instances) and the user's REAL extracted layout.
@@ -58,8 +59,8 @@ type Props = FitProps | LayoutProps;
 // Program family → the quiet floor tint that distinguishes office / meeting / collaboration /
 // amenity rooms within the warm-paper palette. Shared by both renderers (FitPlan carries the
 // family explicitly; LayoutPlan resolves it from the room's type via roomFill).
-type RoomFamily = "open" | "office" | "meeting" | "collab" | "amenity";
-const FAMILY_FILL: Record<RoomFamily, string> = {
+export type RoomFamily = "open" | "office" | "meeting" | "collab" | "amenity";
+export const FAMILY_FILL: Record<RoomFamily, string> = {
   open: "--room-open",       // open workstation field + circulation — a quiet neutral it recedes to
   office: "--room-office",
   meeting: "--room-meeting",
@@ -152,7 +153,7 @@ export const rotationToPointer = (
 // wall poché per type — fill token (the solid cut band), legend-swatch token, label, and
 // the assumed cut THICKNESS in feet (weight hierarchy: perimeter/core heaviest, glass thinnest).
 // `door` is an opening, not a poché band — it draws as a swing, so it carries no fill.
-const WALL: Record<WallType, { fill: string; token: string; label: string; thickness: number }> = {
+export const WALL: Record<WallType, { fill: string; token: string; label: string; thickness: number }> = {
   perimeter: { fill: "--poche-perimeter", token: "--wall-perimeter", label: "Perimeter", thickness: 0.8 },
   core: { fill: "--poche-core", token: "--wall-core", label: "Core", thickness: 0.7 },
   drywall: { fill: "--poche-drywall", token: "--wall-drywall", label: "Drywall", thickness: 0.4 },
@@ -163,7 +164,7 @@ const WALL: Record<WallType, { fill: string; token: string; label: string; thick
 };
 
 // furniture footprint colour token by category
-const FURN: Record<FurnitureCategory, string> = {
+export const FURN: Record<FurnitureCategory, string> = {
   chair: "--furn-seat",
   sofa: "--furn-seat",
   stool: "--furn-seat",
@@ -184,7 +185,7 @@ const SHEET_INSET = PAD * 0.45; // drawing-frame inset from the viewBox edge (fe
 // A wall is a polyline; render each segment as a filled band `thickness` ft wide centred on
 // the segment so it reads as a solid cut element (poché). Returns one screen-space polygon
 // point string per segment, already y-flipped via the view mappers.
-function pocheBands(
+export function pocheBands(
   points: [number, number][],
   thickness: number,
   fx: (x: number) => number,
@@ -221,7 +222,7 @@ function niceScaleFeet(span: number): number {
   return 10 * pow;
 }
 
-function useView(minX: number, minY: number, maxX: number, maxY: number) {
+export function useView(minX: number, minY: number, maxX: number, maxY: number) {
   return useMemo(() => {
     const x0 = minX - PAD;
     const x1 = maxX + PAD;
@@ -234,7 +235,7 @@ function useView(minX: number, minY: number, maxX: number, maxY: number) {
   }, [minX, minY, maxX, maxY]);
 }
 
-type View = ReturnType<typeof useView>;
+export type View = ReturnType<typeof useView>;
 
 // Soft warm drop-shadow that lifts enclosed rooms off the paper. One shared filter, referenced
 // sparingly (rooms/containers only — never per-desk) so ~300-desk plans stay fast.
@@ -455,7 +456,7 @@ type RoomTag = { name: string; area: number; left: number; top: number };
 
 // What a plan's `draw` closure receives: a click guard (so a pan never fires a room's onClick) and a
 // binder that wires hover/focus highlight + the floating room tag onto a room <g>.
-type PlanApi = {
+export type PlanApi = {
   didDrag: () => boolean;
   // Convert a client-pixel drag (from → to) into a world-feet delta, accounting for the current
   // pan/zoom. Used by the editable canvas to translate a dragged piece. {0,0} before first paint.
@@ -491,7 +492,7 @@ const STATIC_API: PlanApi = {
   bindRoom: () => NOOP_ROOM,
 };
 
-function PlanStage({
+export function PlanStage({
   view,
   span,
   title,
@@ -639,13 +640,6 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin, compact }: FitProps
   const maxY = Math.max(...ys);
   const view = useView(minX, minY, maxX, maxY);
 
-  // a closed ring (boundary/core polygons may omit the closing point) — pocheBands draws per
-  // segment, so append the first point to seal the loop into one continuous wall.
-  const closed = (pts: [number, number][]): [number, number][] =>
-    pts.length > 1 && (pts[0][0] !== pts[pts.length - 1][0] || pts[0][1] !== pts[pts.length - 1][1])
-      ? [...pts, pts[0]]
-      : pts;
-
   return (
     <PlanStage view={view} span={maxX - minX} title="TEST-FIT" kind="SPACE PLAN" compact={compact} draw={(api) => (
     <>
@@ -657,7 +651,7 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin, compact }: FitProps
             fill="var(--poche-core)"
             fillOpacity={0.12}
           />
-          {pocheBands(closed(c), WALL.core.thickness, view.fx, view.fy).map((pts, j) => (
+          {pocheBands(closeRing(c), WALL.core.thickness, view.fx, view.fy).map((pts, j) => (
             <polygon key={j} className="poche-band" points={pts} fill="var(--poche-core)" vectorEffect="non-scaling-stroke" />
           ))}
         </g>
@@ -771,7 +765,7 @@ function FitPlan({ plan, instances, pinnedKeys, onTogglePin, compact }: FitProps
       ))}
 
       {/* building edge — one closed perimeter poché wall, drawn last on top */}
-      {pocheBands(closed(plan.boundary), WALL.perimeter.thickness, view.fx, view.fy).map((pts, j) => (
+      {pocheBands(closeRing(plan.boundary), WALL.perimeter.thickness, view.fx, view.fy).map((pts, j) => (
         <polygon key={`b-${j}`} className="poche-band" points={pts} fill="var(--poche-perimeter)" vectorEffect="non-scaling-stroke" />
       ))}
     </>

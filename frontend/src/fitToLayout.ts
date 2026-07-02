@@ -31,7 +31,9 @@ const ROOM_META: Record<string, { label: string; type: string; wall: WallType }>
   storage: { label: "Storage", type: "amenity", wall: "drywall" },
 };
 
-const closeRing = (pts: [number, number][]): [number, number][] => {
+// A closed ring: polygons (boundary/core) may omit the closing point; append the first point so a
+// per-segment consumer (pocheBands, wall builders) seals the loop into one continuous edge.
+export const closeRing = (pts: [number, number][]): [number, number][] => {
   const [a, b] = [pts[0], pts[pts.length - 1]];
   return pts.length > 1 && (a[0] !== b[0] || a[1] !== b[1]) ? [...pts, pts[0]] : pts;
 };
