@@ -20,7 +20,7 @@ function fmtDate(ms: number): string {
 
 // The app home — a grid of workflow projects (qbiq "My Projects"). New Project starts the pipeline;
 // a card opens it. Client-side store for now (see workflowProjects.ts).
-export default function Projects({ onOpen }: { onOpen: (p: WorkflowProject, resume?: boolean) => void }) {
+export default function Projects({ onOpen }: { onOpen: (p: WorkflowProject) => void }) {
   const [projects, setProjects] = useState<WorkflowProject[]>(listProjects);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", address: "", floor: "" });
@@ -98,15 +98,6 @@ export default function Projects({ onOpen }: { onOpen: (p: WorkflowProject, resu
                   {p.floor ? `Floor ${p.floor} · ` : ""}{fmtDate(p.createdAt)}
                 </div>
               </button>
-              {p.editedDesigns?.length ? (
-                <button
-                  className="project-resume link-btn"
-                  onClick={() => onOpen(p, true)}
-                  aria-label={`Resume editing ${p.name}`}
-                >
-                  Resume editing →
-                </button>
-              ) : null}
               <button
                 className="project-del"
                 onClick={() => remove(p.id)}

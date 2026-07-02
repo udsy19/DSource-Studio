@@ -1,22 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
-  downloadDxfFromFit,
-  downloadIfcFromFit,
-  downloadProgramSummary,
-  downloadRenderImage,
-  downloadReport,
-  downloadTakeoffFromFit,
-  downloadTakeoffFromLayout,
   fetchGeometry,
   fetchLayoutBom,
   fetchLayoutMetrics,
   fetchProducts,
   fetchSettings,
-  fetchGenerateJob,
-  submitGenerateDetailed,
-  submitGenerateFromConcept,
   ingestCad,
-  iterateDetailed,
   mergeRooms,
   money,
   num,
@@ -29,15 +18,13 @@ import {
 } from "./api";
 import Dropzone from "./components/Dropzone";
 import { furnitureSymbol } from "./components/furnitureSymbols";
-import PlanCanvas, { furnitureKey, instanceKey } from "./components/PlanCanvas";
-import SceneEditor from "./components/SceneEditor";
+import PlanCanvas, { furnitureKey } from "./components/PlanCanvas";
 import SpaceView from "./components/SpaceView";
 import { Button, Callout, Eyebrow, Segmented } from "./design/ui";
 import WizardStepper, { type WizardStep } from "./components/WizardStepper";
-import { layoutFromFit, rotatePoint } from "./fitToLayout";
-import { listEditedDesigns, type ProjectStatus, type WorkflowProject } from "./workflowProjects";
+import { rotatePoint } from "./fitToLayout";
+import type { WorkflowProject } from "./workflowProjects";
 import type {
-  Alternative,
   CatalogSetting,
   ConceptProgram,
   DetailedProgram,
@@ -45,11 +32,8 @@ import type {
   ExtractedFurniture,
   ExtractedLayout,
   ExtractedRoom,
-  Instance,
   LayoutMetrics,
-  Metrics,
   Placement,
-  Plan,
   Product,
   RoomType,
 } from "./types";
@@ -195,21 +179,6 @@ const ROOM_FAMILY: Record<string, string> = {
   amenity: "Amenities",
 };
 
-// Aggregate a detailed program into the scene adapter's target keys (the scene scoreboard reads
-// target_offices/target_meetings/target_collaboration). Offices→offices; Conference+Team→meetings;
-// Collaboration→collaboration; Amenities aren't a scene-zone target. Without this the scene targets
-// default to 0 and every room reads as over-target.
-function sceneProgramTargets(program: DetailedProgram): Record<string, number> {
-  const t = { target_offices: 0, target_meetings: 0, target_collaboration: 0 };
-  for (const r of program.rooms) {
-    const fam = ROOM_FAMILY[r.type];
-    if (fam === "Offices") t.target_offices += r.count;
-    else if (fam === "Conference" || fam === "Team rooms") t.target_meetings += r.count;
-    else if (fam === "Collaboration") t.target_collaboration += r.count;
-  }
-  return t;
-}
-
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -270,16 +239,6 @@ const FINISH_THEMES: { name: string; finishes: Record<string, string>; swatch: [
     finishes: { wall: "white drywall", floor: "light oak wood", palette: "warm neutral", style: "scandinavian" },
     swatch: ["#f2efe9", "#d8bd97", "#e5d8c6"] },
 ];
-
-// Instance type → the natural room phrase a scoped Kontext edit names ("Change the walls of the
-// meeting room…"). Only the enclosed/nameable scopes; anything unmapped isn't offered as a target.
-const ROOM_SCOPE_PHRASE: Record<string, string> = {
-  private_office: "private office",
-  meeting_room: "meeting room",
-  collaboration: "collaboration area",
-  phone_booth: "phone booth",
-  workstation: "open workstations",
-};
 
 const DEFAULT_DETAILED: DetailedProgram = {
   rooms: [
@@ -449,20 +408,21 @@ function recountInventory(
   return inv;
 }
 
-// One downloadable deliverable for the review step — rendered both inline and in the Plan Files
-// modal from a single list, so the two surfaces never drift.
-type Deliverable = { kind: string; label: string; meta: string; run: () => Promise<void>; primary?: boolean };
+// What the wizard hands to the host on Submit — the plate + the program to generate from. The host
+// (App) owns the generation job so the Results destination can reflect its processing/error state.
+export type SubmitInputs = {
+  file: File;
+  genMode: "concept" | "detailed";
+  concept: ConceptProgram;
+  detailed: DetailedProgram;
+};
 
 export default function Studio({
   project,
-  onStatus,
-  resume,
-  onClose,
+  onSubmit,
 }: {
   project?: WorkflowProject | null;
-  onStatus?: (s: ProjectStatus) => void;
-  resume?: boolean; // reopen straight into the scene editor on this project's latest saved design
-  onClose?: () => void; // exit the studio back to the Projects dashboard
+  onSubmit: (inputs: SubmitInputs) => void; // Submit the wizard → generate → Results (host-owned)
 }) {
   // Guided pipeline: the current stage. Replaces the old read/generate toggle.
   const [step, setStep] = useState<WizardStep>("property");
@@ -496,24 +456,14 @@ export default function Studio({
   // honest record of which finishes were applied to which room (inspectable/reportable).
   const [finishScope, setFinishScope] = useState<string>("");
   const [roomFinishes, setRoomFinishes] = useState<Record<string, Record<string, string>>>({});
-  // The source version behind an ADOPTED layout — kept so it can still export report/BIM/CAD via
-  // the from-fit endpoints (those read the plan + testfit, which the synthesized layout discards).
-  const [adoptedFit, setAdoptedFit] = useState<{ plan: Plan; alternative: Alternative } | null>(null);
-
-  // Generate state — Concept | Detailed sub-mode, kept separate from the read-layout state.
+  // Generate program — Concept | Detailed sub-mode, kept separate from the read-layout state.
   const [genMode, setGenMode] = useState<"concept" | "detailed">("concept");
   const [concept, setConcept] = useState<ConceptProgram>(DEFAULT_CONCEPT);
   const [detailed, setDetailed] = useState<DetailedProgram>(DEFAULT_DETAILED);
-  const [versions, setVersions] = useState<{ plan: Plan; alternatives: Alternative[] } | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pinned, setPinned] = useState<Instance[]>([]); // Detailed iterate: rooms kept across regenerations
-  const [sceneEditing, setSceneEditing] = useState(false); // the semantic scene editor over the selected version
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<"plan" | "space">("plan");
-  const [exporting, setExporting] = useState<string | null>(null);
-  const [showPlanFiles, setShowPlanFiles] = useState(false);
   const [bom, setBom] = useState<Bom | null>(null);
 
   // Swap state — the selected furniture item OR room, and the fetched alternatives for it.
@@ -952,7 +902,6 @@ export default function Studio({
     setBusy(true);
     setErr(null);
     setLayout(null);
-    setAdoptedFit(null);
     setMarkers([]);
     setPendingMarker(null);
     setPlanningArea([]);
@@ -971,90 +920,17 @@ export default function Studio({
     }
   }
 
-  async function generate(f: File) {
-    setBusy(true);
-    setErr(null);
-    setVersions(null);
-    setSelectedId(null);
-    setPinned([]);
-    setAdoptedFit(null);
-    setFile(f);
-    onStatus?.("processing");
-    try {
-      // Generation runs as a background job (Processing → Ready): submit the plate + program
-      // (Concept brief or explicit Detailed counts), then poll until the versions are ready.
-      const { job_id } =
-        genMode === "detailed"
-          ? await submitGenerateDetailed(f, detailed)
-          : await submitGenerateFromConcept(f, concept);
-      let job = await fetchGenerateJob(job_id);
-      for (let tries = 0; job.status === "processing" && tries < 120; tries++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        job = await fetchGenerateJob(job_id);
-      }
-      if (job.status !== "ready" || !job.result) {
-        throw new Error(job.error || (job.status === "processing" ? "Generation timed out." : "Generation failed."));
-      }
-      const res = job.result;
-      setVersions(res);
-      setSelectedId(res.alternatives.find((a) => a.recommended)?.id ?? res.alternatives[0]?.id ?? null);
-      if (res.alternatives.length === 0) {
-        onStatus?.("draft");
-        setErr("No test-fit versions could be generated for this plate + program. Try adjusting the program.");
-      } else {
-        onStatus?.("ready");
-        setStep("review");
-      }
-    } catch (e) {
-      onStatus?.("draft");
-      setErr(String(e instanceof Error ? e.message : e));
-    } finally {
-      setBusy(false);
-    }
+  // Submit the wizard: hand the plate + program to the host, which owns the generation job so the
+  // Results destination can show its processing → ready / error state. The only generation trigger.
+  function submit() {
+    if (!file) return;
+    onSubmit({ file, genMode, concept, detailed });
   }
 
-  // Iterate: regenerate Detailed versions keeping the pinned rooms (they persist at exact coords).
-  async function regenerate() {
-    if (!versions) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await iterateDetailed({ plan: versions.plan, program: detailed, locked: pinned });
-      setVersions(res);
-      setSelectedId(res.alternatives.find((a) => a.recommended)?.id ?? res.alternatives[0]?.id ?? null);
-    } catch (e) {
-      setErr(String(e instanceof Error ? e.message : e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Adopt the selected generated version as a read-layout — synthesize the ExtractedLayout and
-  // open it in Read mode, so the generated design gets the full room/wall/inventory treatment.
-  function adoptLayout() {
-    const sel = versions?.alternatives.find((a) => a.id === selectedId);
-    if (!versions || !sel) return;
-    dismissSwap();
-    setLayout(layoutFromFit(versions.plan, sel.testfit.instances));
-    setAdoptedFit({ plan: versions.plan, alternative: sel });
-    setStep("review");
-    setView("plan");
-  }
-
-  const togglePin = (it: Instance) => {
-    const key = instanceKey(it);
-    setPinned((prev) =>
-      prev.some((p) => instanceKey(p) === key) ? prev.filter((p) => instanceKey(p) !== key) : [...prev, it],
-    );
-  };
-  const pinnedKeys = useMemo(() => new Set(pinned.map(instanceKey)), [pinned]);
-  const canPin = step === "review" && genMode === "detailed";
-
-  // Which pipeline steps are reachable given progress (uploaded a plate / generated versions).
+  // Which pipeline steps are reachable given progress (uploaded a plate).
   const reachable = (s: WizardStep): boolean => {
     if (s === "property" || s === "space") return true;
-    if (s === "review") return !!versions;
-    return !!file; // program, visualize need a plate
+    return !!file; // program, style need a plate
   };
   const goStep = (s: WizardStep) => {
     if (!reachable(s)) return;
@@ -1063,73 +939,16 @@ export default function Studio({
     setStep(s);
   };
 
-  async function runExport(kind: string, fn: () => Promise<void>) {
-    if (!file) return;
-    setErr(null);
-    setExporting(kind);
-    try {
-      await fn();
-    } catch (e) {
-      setErr(String(e instanceof Error ? e.message : e));
-    } finally {
-      setExporting(null);
-    }
-  }
-
-
-  const building = file?.name.replace(/\.(dxf|dwg)$/i, "") ?? "Plan";
   const inv = layout?.inventory ?? {};
   const rooms = (layout?.rooms ?? []).filter((r) => r.label);
-  const selected = versions?.alternatives.find((a) => a.id === selectedId) ?? null;
 
-  // Rooms a finish edit can be scoped to — labelled rooms from a read layout, else the distinct
-  // nameable room types in the selected generated version. Empty = only whole-scene edits offered.
-  const finishScopes = Array.from(
-    new Set(
-      rooms.length
-        ? rooms.map((r) => r.label!)
-        : (selected?.testfit.instances ?? [])
-            .map((i) => ROOM_SCOPE_PHRASE[i.type])
-            .filter(Boolean),
-    ),
-  );
+  // Rooms a finish edit can be scoped to — the labelled rooms from the read layout ("" = whole scene).
+  const finishScopes = Array.from(new Set(rooms.map((r) => r.label!)));
 
-  const STEP_ORDER: WizardStep[] = ["property", "space", "program", "visualize", "review"];
+  const STEP_ORDER: WizardStep[] = ["property", "space", "program", "style"];
   const stepIdx = STEP_ORDER.indexOf(step);
   const prevStep = stepIdx > 0 ? STEP_ORDER[stepIdx - 1] : null;
   const nextStep = stepIdx < STEP_ORDER.length - 1 ? STEP_ORDER[stepIdx + 1] : null;
-  const reviewAdopted = step === "review" && !!adoptedFit;
-
-  // The review-step deliverables for the active context (adopted editor vs the generated versions).
-  // The report carries the render (when one exists) and an honest QR back to this project.
-  const deliverables = useMemo<Deliverable[]>(() => {
-    const qrUrl = window.location.href;
-    const reportProject = { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" };
-    const png: Deliverable[] = renderResult
-      ? [{ kind: "png", label: "Rendered photo", meta: "PNG", run: () => downloadRenderImage(renderResult) }]
-      : [];
-    if (reviewAdopted && adoptedFit && layout) {
-      return [
-        { kind: "takeoff", label: "Quantity takeoff", meta: "Excel · 9 sheets", primary: true, run: () => downloadTakeoffFromLayout(layout) },
-        { kind: "report", label: "Space-planning report", meta: "PDF", run: () => downloadReport({ project: reportProject, plan: adoptedFit.plan, alternatives: [adoptedFit.alternative], render_image: renderResult, qr_url: qrUrl }) },
-        { kind: "program", label: "Program summary", meta: "Excel · by family", run: () => downloadProgramSummary(layout) },
-        { kind: "ifc", label: "BIM model", meta: "IFC", run: () => downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }) },
-        { kind: "dxf", label: "CAD drawing", meta: "DXF", run: () => downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }) },
-        ...png,
-      ];
-    }
-    if (versions && selected) {
-      return [
-        { kind: "report", label: "Space-planning report", meta: "PDF · 3 options", primary: true, run: () => downloadReport({ project: reportProject, plan: versions.plan, alternatives: versions.alternatives, render_image: renderResult, qr_url: qrUrl }) },
-        { kind: "takeoff", label: "Quantity takeoff", meta: "Excel · BOM", run: () => downloadTakeoffFromFit({ plan: versions.plan, testfit: selected.testfit }) },
-        { kind: "program", label: "Program summary", meta: "Excel · by family", run: () => downloadProgramSummary(layoutFromFit(versions.plan, selected.testfit.instances)) },
-        { kind: "ifc", label: "BIM model", meta: "IFC", run: () => downloadIfcFromFit({ plan: versions.plan, testfit: selected.testfit }) },
-        { kind: "dxf", label: "CAD drawing", meta: "DXF", run: () => downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }) },
-        ...png,
-      ];
-    }
-    return [];
-  }, [reviewAdopted, adoptedFit, layout, versions, selected, renderResult, project, building]);
 
   const viewToggle = (
     <div className="stage-tools">
@@ -1181,22 +1000,6 @@ export default function Studio({
     </>
   );
 
-  const fitStage = versions && selected && (
-    <>
-      {viewToggle}
-      {view === "space" ? (
-        <SpaceView plan={versions.plan} instances={selected.testfit.instances} />
-      ) : (
-        <PlanCanvas
-          plan={versions.plan}
-          instances={selected.testfit.instances}
-          pinnedKeys={canPin ? pinnedKeys : undefined}
-          onTogglePin={canPin ? togglePin : undefined}
-        />
-      )}
-    </>
-  );
-
   const emptyStage = (glyph: string, msg: string) => (
     <div className="empty">
       <div className="glyph">{glyph}</div>
@@ -1204,19 +1007,14 @@ export default function Studio({
     </div>
   );
 
-  const stageBody =
-    step === "review"
-      ? reviewAdopted
-        ? layoutStage
-        : fitStage || emptyStage("◳", "Set a program and generate to lay out three scored test-fits.")
-      : layout
-        ? layoutStage
-        : emptyStage(
-            "⌟",
-            step === "space"
-              ? "Drop a floor plate — walls by type, rooms and a furniture inventory, straight from your CAD."
-              : "Upload a floor plate in the Space step first.",
-          );
+  const stageBody = layout
+    ? layoutStage
+    : emptyStage(
+        "⌟",
+        step === "space"
+          ? "Drop a floor plate — walls by type, rooms and a furniture inventory, straight from your CAD."
+          : "Upload a floor plate in the Space step first.",
+      );
 
   // Editing panels shared by Space (inspect the plate) and Review (edit an adopted design).
   const mergeableRooms = layout ? layout.rooms.filter((r) => r.polygon.length >= 3).length : 0;
@@ -1491,38 +1289,6 @@ export default function Studio({
     </>
   );
 
-  // Reopen a saved edited design straight into the scene editor (from the Projects dashboard),
-  // seeded from its persisted scene with a fresh undo stack. Exits back to Projects.
-  const resumeDesign = resume && project ? listEditedDesigns(project.id)[0] : undefined;
-  if (resumeDesign) {
-    return (
-      <SceneEditor
-        savedScene={resumeDesign.scene as Parameters<typeof SceneEditor>[0]["savedScene"]}
-        projectId={project!.id}
-        designId={resumeDesign.id}
-        designName={resumeDesign.name}
-        forkedFrom={resumeDesign.forkedFrom}
-        onExit={() => onClose?.()}
-      />
-    );
-  }
-
-  // The semantic scene editor is a distinct surface over the selected generated version — it
-  // replaces the wizard while open, and exits back to the versions list.
-  if (sceneEditing && versions && selected) {
-    return (
-      <SceneEditor
-        plan={versions.plan}
-        testfit={selected.testfit}
-        program={genMode === "detailed" ? sceneProgramTargets(detailed) : undefined}
-        projectId={project?.id}
-        forkedFrom={selected.id}
-        designName={`Design ${selected.id}`}
-        onExit={() => setSceneEditing(false)}
-      />
-    );
-  }
-
   return (
     <main className="studio studio-wizard">
       <WizardStepper step={step} onStep={goStep} reachable={reachable} />
@@ -1668,118 +1434,41 @@ export default function Studio({
             </div>
             {!file && <Callout quiet>Upload a floor plate in the Space step to enable generation.</Callout>}
             {genMode === "concept" ? (
-              <ConceptForm concept={concept} onChange={setConcept} busy={busy} file={file} onGenerate={generate} hasVersions={!!versions} />
+              <ConceptForm concept={concept} onChange={setConcept} />
             ) : (
-              <DetailedForm program={detailed} onChange={setDetailed} busy={busy} file={file} onGenerate={generate} hasVersions={!!versions} />
+              <DetailedForm program={detailed} onChange={setDetailed} />
             )}
           </>
         )}
 
-        {step === "visualize" && (
-          <FinishesPanel
-            finishes={finishes}
-            onChange={setFinishes}
-            onVisualize={visualize}
-            busy={rendering}
-            renderReady={renderReady}
-            hasRender={!!renderResult}
-            editConfigured={editConfigured}
-            onEditSurface={editSurface}
-            scopes={finishScopes}
-            scope={finishScope}
-            onScope={setFinishScope}
-            roomFinishes={roomFinishes}
-          />
-        )}
-
-        {step === "review" && (
-          reviewAdopted ? (
-            <>
-              <button type="button" className="link-btn" style={{ marginBottom: 12 }} onClick={() => { setAdoptedFit(null); dismissSwap(); }}>
-                ← Back to versions
+        {step === "style" && (
+          <>
+            <FinishesPanel
+              finishes={finishes}
+              onChange={setFinishes}
+              onVisualize={visualize}
+              busy={rendering}
+              renderReady={renderReady}
+              hasRender={!!renderResult}
+              editConfigured={editConfigured}
+              onEditSurface={editSurface}
+              scopes={finishScopes}
+              scope={finishScope}
+              onScope={setFinishScope}
+              roomFinishes={roomFinishes}
+            />
+            <hr className="ds-rule" />
+            <div className="submit-step">
+              <Eyebrow style={{ display: "block", marginBottom: 10 }}>Generate</Eyebrow>
+              <p className="disclaim" style={{ marginBottom: 12 }}>
+                Style is optional — submit to lay out scored test-fits from your plate and program.
+              </p>
+              <button className="export-btn export-btn--primary" style={{ width: "100%" }} onClick={submit} disabled={!file}>
+                <span className="export-btn-label">Submit — generate test-fits</span>
+                <span className="export-btn-meta">→ scored options in Results</span>
               </button>
-              {editorMetrics}
-              {editingPanels}
-              <hr className="ds-rule" />
-              <div className="exports">
-                <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
-                <ExportButtons deliverables={deliverables} exporting={exporting} onRun={runExport} />
-                <button type="button" className="link-btn" style={{ marginTop: 12 }} onClick={() => setShowPlanFiles(true)}>
-                  Plan files…
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <VersionList versions={versions} selectedId={selectedId} onSelect={setSelectedId} />
-              {canPin && versions && (
-                <>
-                  <hr className="ds-rule" />
-                  <div className="iterate">
-                    <Eyebrow style={{ display: "block", marginBottom: 10 }}>Iterate · pin &amp; regenerate</Eyebrow>
-                    <p className="disclaim" style={{ marginBottom: 12 }}>
-                      Click rooms on the plan to pin them, adjust the program, then regenerate — pinned rooms stay put.
-                    </p>
-                    <div className="iterate-head">
-                      <span className="brief-label">{pinned.length} pinned</span>
-                      {pinned.length > 0 && (
-                        <button type="button" className="link-btn" onClick={() => setPinned([])}>Clear</button>
-                      )}
-                    </div>
-                    <button className="export-btn export-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={regenerate} disabled={busy}>
-                      <span className="export-btn-label">{busy ? "Regenerating…" : "Regenerate"}</span>
-                      <span className="export-btn-meta">{pinned.length > 0 ? `keep ${pinned.length} pinned` : "re-place all"}</span>
-                    </button>
-                  </div>
-                </>
-              )}
-              {versions && selected && (
-                <>
-                  <hr className="ds-rule" />
-                  <div className="adopt">
-                    <Eyebrow style={{ display: "block", marginBottom: 10 }}>Edit · adopt a version</Eyebrow>
-                    <p className="disclaim" style={{ marginBottom: 12 }}>
-                      Open version {selected.id} in the editor — rooms, partitions and desks become editable; swap, move and delete.
-                    </p>
-                    <button className="export-btn export-btn--primary" style={{ width: "100%" }} onClick={adoptLayout} disabled={busy}>
-                      <span className="export-btn-label">Open in editor</span>
-                      <span className="export-btn-meta">→ edit · swap · export</span>
-                    </button>
-                    <button className="export-btn" style={{ width: "100%", marginTop: 8 }} onClick={() => setSceneEditing(true)} disabled={busy}>
-                      <span className="export-btn-label">Edit in Studio</span>
-                      <span className="export-btn-meta">→ semantic scene · locked base</span>
-                    </button>
-                  </div>
-                  <hr className="ds-rule" />
-                  <div className="exports">
-                    <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · version {selected.id}</Eyebrow>
-                    <label className="version-select">
-                      <span className="brief-label">Active version</span>
-                      <select
-                        className="version-select-input"
-                        value={selectedId ?? ""}
-                        onChange={(e) => setSelectedId(e.target.value)}
-                        aria-label="Active version for export"
-                      >
-                        {versions.alternatives.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            Option {a.id} · {num(a.metrics.seats)} seats{a.recommended ? " · recommended" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <ExportButtons deliverables={deliverables} exporting={exporting} onRun={runExport} />
-                    <button type="button" className="link-btn" style={{ marginTop: 12 }} onClick={() => setShowPlanFiles(true)}>
-                      Plan files…
-                    </button>
-                    <p className="disclaim" style={{ marginTop: 12 }}>
-                      Report compares all three versions; takeoff, program, BIM &amp; CAD export the selected one.
-                    </p>
-                  </div>
-                </>
-              )}
-            </>
-          )
+            </div>
+          </>
         )}
 
         <div className="wizard-nav">
@@ -1793,16 +1482,6 @@ export default function Studio({
           )}
         </div>
       </aside>
-      {/* Stage-independent: openable from the versions list (fitStage) AND the adopted editor
-          (layoutStage), so the modal must live outside stageBody. */}
-      {showPlanFiles && (
-        <PlanFilesModal
-          deliverables={deliverables}
-          exporting={exporting}
-          onRun={runExport}
-          onClose={() => setShowPlanFiles(false)}
-        />
-      )}
     </main>
   );
 }
@@ -2133,17 +1812,9 @@ function SwapPanel({
 function ConceptForm({
   concept,
   onChange,
-  busy,
-  file,
-  onGenerate,
-  hasVersions,
 }: {
   concept: ConceptProgram;
   onChange: (c: ConceptProgram) => void;
-  busy: boolean;
-  file: File | null;
-  onGenerate: (f: File) => void;
-  hasVersions: boolean;
 }) {
   const sizeValue = `${concept.desk_width_cm}x${concept.desk_depth_cm}`;
   const ratioPct = Math.round(concept.closed_ratio * 100);
@@ -2209,7 +1880,6 @@ function ConceptForm({
         </div>
       </div>
 
-      <GenerateButton busy={busy} file={file} onGenerate={onGenerate} hasVersions={hasVersions} />
     </div>
   );
 }
@@ -2217,17 +1887,9 @@ function ConceptForm({
 function DetailedForm({
   program,
   onChange,
-  busy,
-  file,
-  onGenerate,
-  hasVersions,
 }: {
   program: DetailedProgram;
   onChange: (p: DetailedProgram) => void;
-  busy: boolean;
-  file: File | null;
-  onGenerate: (f: File) => void;
-  hasVersions: boolean;
 }) {
   const sizeValue = `${program.desk_width_cm}x${program.desk_depth_cm}`;
   // Upsert a room by type (count 0 prunes it); placement defaults to the catalog entry's.
@@ -2258,7 +1920,7 @@ function DetailedForm({
 
   // Live tally of the requested program — the enclosed-room count per family, updating as the
   // steppers change (qbiq's Program Summary, pre-generation). Density/headcount need the plate
-  // area, so they surface per-version after generation (VersionList metrics), not here.
+  // area, so they surface per-alternative on the Results page after Submit, not here.
   const familyTally = ROOM_CATALOG.map(({ family, rooms }) => ({
     family,
     count: rooms.reduce(
@@ -2481,225 +2143,8 @@ function DetailedForm({
         />
       </div>
 
-      <GenerateButton busy={busy} file={file} onGenerate={onGenerate} hasVersions={hasVersions} />
     </div>
   );
 }
 
-function GenerateButton({
-  busy,
-  file,
-  onGenerate,
-  hasVersions,
-}: {
-  busy: boolean;
-  file: File | null;
-  onGenerate: (f: File) => void;
-  hasVersions: boolean;
-}) {
-  return (
-    <>
-      <button
-        type="button"
-        className="ds-btn ds-btn--primary brief-go"
-        onClick={() => file && onGenerate(file)}
-        disabled={!file || busy}
-        aria-busy={busy}
-      >
-        {busy ? "Generating…" : hasVersions ? "Regenerate versions" : "Generate versions"}
-      </button>
-      <span className="sr-only" role="status" aria-live="polite">
-        {busy ? "Generating test-fits…" : ""}
-      </span>
-    </>
-  );
-}
-
-// The deliverables as a list of export buttons — the single renderer used by the review-step
-// exports block and the Plan Files modal, so both surfaces always offer the same set.
-function ExportButtons({
-  deliverables,
-  exporting,
-  onRun,
-}: {
-  deliverables: Deliverable[];
-  exporting: string | null;
-  onRun: (kind: string, run: () => Promise<void>) => void;
-}) {
-  return (
-    <div className="export-actions">
-      {deliverables.map((d) => (
-        <button
-          key={d.kind}
-          className={`export-btn${d.primary ? " export-btn--primary" : ""}`}
-          onClick={() => onRun(d.kind, d.run)}
-          disabled={!!exporting}
-        >
-          <span className="export-btn-label">{d.label}</span>
-          <span className="export-btn-meta">{exporting === d.kind ? "Preparing…" : d.meta}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// Per-design "Plan files" modal — one place to grab every downloadable file for the active design.
-// Accessible: focus-trapped (Tab cycles inside), Esc closes, focus restored to the opener on close.
-function PlanFilesModal({
-  deliverables,
-  exporting,
-  onRun,
-  onClose,
-}: {
-  deliverables: Deliverable[];
-  exporting: string | null;
-  onRun: (kind: string, run: () => Promise<void>) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    const node = ref.current;
-    const focusables = () =>
-      Array.from(node?.querySelectorAll<HTMLElement>("button, [href], select, [tabindex]:not([tabindex='-1'])") ?? [])
-        .filter((el) => !el.hasAttribute("disabled"));
-    focusables()[0]?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    node?.addEventListener("keydown", onKey);
-    return () => {
-      node?.removeEventListener("keydown", onKey);
-      opener?.focus();
-    };
-  }, [onClose]);
-
-  return (
-    <div className="modal-scrim" onClick={onClose}>
-      <div
-        ref={ref}
-        className="plan-files-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Plan files"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="swap-head">
-          <Eyebrow>Plan files</Eyebrow>
-          <button type="button" className="link-btn" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <p className="disclaim" style={{ marginBottom: 12 }}>
-          Every downloadable file for this design — reports, spreadsheets, models and drawings.
-        </p>
-        <ExportButtons deliverables={deliverables} exporting={exporting} onRun={onRun} />
-      </div>
-    </div>
-  );
-}
-
-function VersionList({
-  versions,
-  selectedId,
-  onSelect,
-}: {
-  versions: { plan: Plan; alternatives: Alternative[] } | null;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  if (!versions || versions.alternatives.length === 0) return null;
-  return (
-    <>
-      <hr className="ds-rule" />
-      <div>
-        <Eyebrow style={{ display: "block", marginBottom: 12 }}>
-          Versions · {versions.alternatives.length}
-        </Eyebrow>
-        <div className="versions" role="list">
-          {versions.alternatives.map((alt) => (
-            <VersionCard
-              key={alt.id}
-              alt={alt}
-              plan={versions.plan}
-              selected={alt.id === selectedId}
-              onSelect={() => onSelect(alt.id)}
-            />
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function VersionCard({
-  alt,
-  plan,
-  selected,
-  onSelect,
-}: {
-  alt: Alternative;
-  plan: Plan;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <li className="version-item">
-      <button
-        type="button"
-        className={`version-card ${selected ? "is-selected" : ""}`}
-        aria-pressed={selected}
-        onClick={onSelect}
-      >
-        {alt.recommended && (
-          // The score rides with the badge on purpose — A/B/C differ only by density preset, so
-          // wins can be close; showing the number lets the user read it as a call, not a decree.
-          <span className="version-badge">Recommended · {pct(alt.score)} match</span>
-        )}
-        <span className="version-thumb">
-          <PlanCanvas plan={plan} instances={alt.testfit.instances} compact />
-        </span>
-        <span className="version-meta">
-          <span className="version-seats">
-            <span className="version-seats-n">{num(alt.metrics.seats)}</span>
-            <span className="version-seats-k">seats</span>
-          </span>
-          <MetricRow label="Match" value={pct(alt.score)} />
-          <MetricRow label="Density" value={`${num(alt.metrics.density_sf_per_person)} sf/p`} />
-          <MetricRow label="Daylight" value={pct(alt.metrics.daylight_pct)} />
-          {/* privacy is a planning-heuristic estimate (privacy_basis) — flag it, don't imply precision */}
-          <MetricRow label="Privacy" value={`~${pct(alt.metrics.privacy_pct)}`} />
-          <MetricRow label="Efficiency" value={pct(alt.metrics.efficiency_pct)} />
-        </span>
-      </button>
-    </li>
-  );
-}
-
-function MetricRow({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="version-row">
-      <span className="version-row-k">{label}</span>
-      <span className="version-row-v">{value}</span>
-    </span>
-  );
-}
-
-const pct = (n: Metrics["daylight_pct"]) => `${Math.round(n * 100)}%`;
 

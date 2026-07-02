@@ -417,6 +417,9 @@ export async function downloadReport(reportData: {
 
 export const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 
+// A 0..1 ratio as a whole-number percent (daylight, match, efficiency, …).
+export const pct = (n: number) => `${Math.round(n * 100)}%`;
+
 // Currency-aware money formatter — honours the BOM's `currency` field (Steelcase list prices are
 // USD; the India track will emit INR) instead of a hardcoded '$'.
 export const money = (n: number, currency = "USD") =>

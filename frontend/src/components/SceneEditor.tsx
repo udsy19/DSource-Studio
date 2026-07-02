@@ -958,11 +958,11 @@ export default function SceneEditor({
   // Persist the CURRENT scene as this project's edited design (never the undo stack). Stable id per
   // editor session so repeated saves update one record; new when opened fresh from a version.
   const designKey = useMemo(() => designId ?? `d-${Date.now().toString(36)}`, [designId]);
-  const save = () => {
-    if (!scene) return;
+  const save = (): { ok: boolean } => {
+    if (!scene) return { ok: false };
     if (!projectId) {
       setSaveMsg("Open this from a project to save it.");
-      return;
+      return { ok: false };
     }
     const res = saveEditedDesign(projectId, {
       id: designKey,
@@ -972,6 +972,16 @@ export default function SceneEditor({
       updatedAt: Date.now(),
     });
     setSaveMsg(res.ok ? "Saved." : res.error);
+    return { ok: res.ok };
+  };
+
+  // Fork-on-first-edit: a design record is created only once a command has been committed (the
+  // history grew past the seed scene). Opening a version and pressing Done with no edits leaves no
+  // trace. Done saves any real edits (so work is never lost), but stays open if the save fails.
+  const dirty = history.length > 1;
+  const done = () => {
+    if (dirty && !save().ok) return;
+    onExit();
   };
 
   return (
@@ -1005,7 +1015,7 @@ export default function SceneEditor({
 
       <aside className="panel">
         <div className="scene-toolbar">
-          <button type="button" className="link-btn" onClick={onExit}>← Done</button>
+          <button type="button" className="link-btn" onClick={done}>← Done</button>
           <div className="scene-toolbar-actions">
             <button type="button" className={`link-btn${mergeMode ? " is-on" : ""}`} aria-pressed={mergeMode} onClick={toggleMergeMode}>⇔ Merge</button>
             <button type="button" className="link-btn" onClick={undo} disabled={!canUndo} aria-label="Undo">↶ Undo</button>

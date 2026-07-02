@@ -1,13 +1,12 @@
 // The guided-pipeline left rail (qbiq-style). Shows the ordered stages, the current one, which are
 // done, and lets the user jump to any reachable step. Purely presentational — the host owns `step`.
-export type WizardStep = "property" | "space" | "program" | "visualize" | "review";
+export type WizardStep = "property" | "space" | "program" | "style";
 
 const STEPS: { key: WizardStep; label: string; hint: string }[] = [
   { key: "property", label: "Property", hint: "Name, address, units" },
   { key: "space", label: "Space", hint: "Upload the floor plate" },
   { key: "program", label: "Program", hint: "Headcount & mix" },
-  { key: "visualize", label: "Visualize", hint: "Finishes & render" },
-  { key: "review", label: "Review", hint: "Test-fits & export" },
+  { key: "style", label: "Style", hint: "Finishes, then submit" },
 ];
 
 export default function WizardStepper({

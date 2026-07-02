@@ -405,34 +405,12 @@ header.bar {
   color: var(--ink); font-variant-numeric: tabular-nums;
 }
 
-/* version comparison cards */
-.versions { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
-.version-item { display: flex; list-style: none; }
-.version-card {
-  position: relative;
-  display: flex; gap: var(--s4); align-items: stretch; text-align: left; width: 100%;
-  background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r2);
-  padding: var(--s3); cursor: pointer;
-  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease),
-    transform var(--dur-1) var(--ease);
-}
-.version-card:hover { border-color: var(--accent-line); }
-.version-card.is-selected { border-color: var(--accent); background: var(--accent-soft); }
-.version-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* scored test-fit card bits — shared by the Results grid (the recommended badge, seat numeral, rows) */
 .version-badge {
   position: absolute; top: 0; right: var(--s3); transform: translateY(-50%);
   padding: 3px 9px; border-radius: var(--r-pill); background: var(--accent); color: var(--paper);
   font: 600 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
 }
-
-.version-thumb {
-  flex: 0 0 96px; width: 96px; height: 96px; display: block;
-  background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden;
-}
-.version-thumb svg { width: 100%; height: 100%; max-height: none; }
-
-.version-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.version-seats { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
 .version-seats-n {
   font: var(--t-numeral); font-size: 28px; color: var(--ink);
   font-variant-numeric: tabular-nums; line-height: 1;
@@ -444,6 +422,31 @@ header.bar {
 .version-row { display: flex; justify-content: space-between; gap: var(--s3); font-size: 11.5px; }
 .version-row-k { color: var(--muted); }
 .version-row-v { font-family: var(--serif); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ── Results destination — the generated test-fit grid + edited-designs list ── */
+.results { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 28px 32px 64px; overflow: auto; }
+.results-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4); margin-bottom: 20px; }
+.results-title { margin: 0; }
+.results-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.results-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+  padding: 64px 24px; color: var(--muted); }
+.results-state .glyph { font-size: 32px; color: var(--faint); }
+.results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+.result-card { position: relative; display: flex; flex-direction: column; gap: var(--s3);
+  background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r2); padding: var(--s3); }
+.result-card.is-recommended { border-color: var(--accent); background: var(--accent-soft); }
+.result-thumb { width: 100%; aspect-ratio: 4 / 3; background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: var(--r1); overflow: hidden; }
+.result-thumb svg { width: 100%; height: 100%; }
+.result-meta { display: flex; flex-direction: column; gap: 4px; }
+.result-seats { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+.results-edit-list { display: flex; flex-direction: column; gap: var(--s2); }
+.results-edit-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4);
+  width: 100%; text-align: left; padding: 10px 12px; background: var(--paper); border: 1px solid var(--line-2);
+  border-radius: var(--r1); cursor: pointer; }
+.results-edit-row:hover { border-color: var(--accent-line); background: var(--paper-2); }
+.results-edit-name { font-size: 13px; color: var(--ink); }
+.results-edit-meta { font-size: 11px; color: var(--muted); font-family: var(--serif); }
 
 .label { font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
 
@@ -564,26 +567,6 @@ header.bar {
 }
 .export-btn.is-danger:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 .export-btn.is-danger .export-btn-label { color: var(--accent); }
-
-/* active-version selector — switch which A/B/C option the version exports target */
-.version-select { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.version-select-input {
-  width: 100%; padding: 10px 12px; background: var(--paper); color: var(--ink);
-  border: 1px solid var(--line-2); border-radius: var(--r1);
-  font: 500 13px/1 var(--sans); cursor: pointer;
-}
-.version-select-input:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
-
-/* plan files — a focus-trapped modal listing every downloadable file for the active design */
-.modal-scrim {
-  position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
-  background: var(--scrim); backdrop-filter: blur(3px); animation: fade 0.25s ease both; padding: 24px;
-}
-.plan-files-modal {
-  display: flex; flex-direction: column; gap: 10px; width: min(420px, 92vw); max-height: 84vh; overflow-y: auto;
-  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r2);
-  padding: 18px 20px; box-shadow: var(--shadow-2);
-}
 
 /* editable canvas — a movable piece invites the drag; the active drag shows the grabbing cursor */
 .layout-furn.is-movable { cursor: grab; }
@@ -826,10 +809,6 @@ header.bar {
 .room-props select.ds-input { cursor: pointer; appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position: right 14px center, right 9px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
-
-/* resume-editing affordance on a project card (shown when it has saved edited designs) */
-.project-resume { display: block; margin: 8px 0 0 18px; font: 500 12px/1 var(--sans); color: var(--accent); text-align: left; }
-.project-resume:hover { text-decoration: underline; }
 
 /* program starter templates — one click seeds a saved program state */
 .program-templates { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
