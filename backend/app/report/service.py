@@ -5,27 +5,29 @@ validates) and returns PDF bytes. No I/O, no other modules — the caller suppli
 
 Layout follows the studio aesthetic: warm paper, ink linework, a single terracotta accent,
 serif numerals (Times stands in for Fraunces, which isn't a built-in PDF font). Pages:
-cover, one per alternative (metrics sidebar + to-scale 2D plan), and a comparison summary.
+cover (with an honest QR when a link is supplied), an optional render page (only when a render
+image is present), one per alternative (metrics sidebar + to-scale 2D plan), and a comparison
+summary (table + seat bars + space-mix breakdown).
 
-Honest data: a missing metric renders as an em-dash, never a fabricated number.
+Honest data: a missing metric renders as an em-dash, never a fabricated number; the render page
+appears only when there is a real render; the QR links to whatever URL the caller supplies and is
+labelled for exactly that — it never implies a hosted 3D tour.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 from typing import Iterable
 
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-# Warm-paper palette (mirrors the frontend design tokens).
-PAPER = HexColor("#FAF7F2")
-INK = HexColor("#1C1A17")
-INK_2 = HexColor("#4A453E")
-MUTED = HexColor("#8A8278")
-LINE = HexColor("#D9D2C6")
-ACCENT = HexColor("#C0613B")  # terracotta — the single accent, used for the hero figure
+from .palette import ACCENT, INK, INK_2, LINE, MUTED, PAPER
+from .qr import draw_qr
 
 # One soft fill per furniture type; all share an ink hairline stroke.
 ROOM_FILL = {
@@ -60,8 +62,14 @@ def build_report_pdf(data: dict) -> bytes:
     project = data.get("project", {})
     plan = data.get("plan", {})
     alternatives = data.get("alternatives", [])
+    render_image = data.get("render_image")
+    qr_url = data.get("qr_url")
 
-    _draw_cover(c, width, height, project, plan)
+    _draw_cover(c, width, height, project, plan, qr_url)
+    render = _decode_render(render_image)
+    if render is not None:
+        c.showPage()
+        _draw_render_page(c, width, height, project, render)
     for alt in alternatives:
         c.showPage()
         _draw_alternative_page(c, width, height, project, plan, alt)
@@ -71,6 +79,17 @@ def build_report_pdf(data: dict) -> bytes:
     c.showPage()
     c.save()
     return buf.getvalue()
+
+
+def _decode_render(render_image) -> ImageReader | None:
+    """Turn a data-URL or bare base64 string into an ImageReader; None when absent/undecodable."""
+    if not render_image or not isinstance(render_image, str):
+        return None
+    payload = render_image.split(",", 1)[1] if render_image.startswith("data:") else render_image
+    try:
+        return ImageReader(io.BytesIO(base64.b64decode(payload)))
+    except (binascii.Error, ValueError, OSError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +137,10 @@ def _fmt(value, suffix: str = "", decimals: int | None = None) -> str:
 # Cover
 # ---------------------------------------------------------------------------
 
-def _draw_cover(c: canvas.Canvas, width: float, height: float, project: dict, plan: dict) -> None:
+def _draw_cover(
+    c: canvas.Canvas, width: float, height: float,
+    project: dict, plan: dict, qr_url: str | None = None,
+) -> None:
     _paper(c, width, height)
 
     _eyebrow(c, MARGIN, height - 70, "Space Planning Report")
@@ -159,6 +181,15 @@ def _draw_cover(c: canvas.Canvas, width: float, height: float, project: dict, pl
     c.setFillColor(MUTED)
     c.drawRightString(width - MARGIN, height - 70, "3 alternatives  ·  A / B / C")
 
+    if qr_url:
+        qr_size = 96.0
+        qr_x = width - MARGIN - qr_size
+        qr_y = 72
+        draw_qr(c, qr_url, qr_x, qr_y, qr_size)
+        c.setFont(SANS_BOLD, 7.5)
+        c.setFillColor(MUTED)
+        c.drawString(qr_x, qr_y + qr_size + 8, _spaced("SCAN · OPEN IN DSOURCE"))
+
     _footer(c, width, project, "Cover")
 
 
@@ -167,6 +198,42 @@ def _area(value, units: str | None) -> str | None:
         return None
     unit = "sf" if (units or "").lower() in ("", "feet", "ft", "sf") else (units or "")
     return f"{value:,.0f} {unit}".strip()
+
+
+# ---------------------------------------------------------------------------
+# Render page — the photoreal visualization, contained inside a margin, aspect-correct
+# ---------------------------------------------------------------------------
+
+def _draw_render_page(
+    c: canvas.Canvas, width: float, height: float, project: dict, render: ImageReader,
+) -> None:
+    _paper(c, width, height)
+    top = height - 64
+    _eyebrow(c, MARGIN, top, "Visualization")
+    c.setFillColor(INK)
+    c.setFont(SERIF, 30)
+    c.drawString(MARGIN, top - 32, "Photoreal render")
+    c.setStrokeColor(ACCENT)
+    c.setLineWidth(2.0)
+    c.line(MARGIN, top - 46, MARGIN + 70, top - 46)
+
+    # Fit the image, preserving aspect, inside the region below the title and above the footer.
+    region_x0 = MARGIN
+    region_y0 = 58
+    region_x1 = width - MARGIN
+    region_y1 = top - 62
+    iw, ih = render.getSize()
+    scale = min((region_x1 - region_x0) / iw, (region_y1 - region_y0) / ih)
+    draw_w = iw * scale
+    draw_h = ih * scale
+    img_x = region_x0 + (region_x1 - region_x0 - draw_w) / 2
+    img_y = region_y0 + (region_y1 - region_y0 - draw_h) / 2
+    c.drawImage(render, img_x, img_y, draw_w, draw_h)
+    c.setStrokeColor(LINE)
+    c.setLineWidth(0.6)
+    c.rect(img_x, img_y, draw_w, draw_h, fill=0, stroke=1)
+
+    _footer(c, width, project, "Visualization")
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +520,12 @@ def _draw_summary_page(
         c.line(table_x, ry - 10, table_x + label_w + len(alts) * col_w, ry - 10)
         ry -= 28
 
-    _seat_bars(c, table_x, ry - 24, label_w, col_w, alts)
+    # Two charts side by side below the table: seat totals (left) and the space-mix split (right).
+    charts_y = ry - 24
+    gutter = 40.0
+    col = (label_w + len(alts) * col_w - gutter) / 2
+    _seat_bars(c, table_x, charts_y, col, alts)
+    _space_mix_bars(c, table_x + col + gutter, charts_y, col, alts)
     _footer(c, width, project, "Summary")
 
 
@@ -466,7 +538,7 @@ def _best_index(key: str, values: list) -> int | None:
     return min(present, key=lambda p: p[1])[0] if lower_is_better else max(present, key=lambda p: p[1])[0]
 
 
-def _seat_bars(c: canvas.Canvas, x: float, y: float, label_w: float, col_w: float, alts: list) -> None:
+def _seat_bars(c: canvas.Canvas, x: float, y: float, width: float, alts: list) -> None:
     seats = [(alt.get("metrics", {}) or {}).get("seats") for alt in alts]
     nums = [s for s in seats if isinstance(s, (int, float))]
     if not nums:
@@ -475,7 +547,7 @@ def _seat_bars(c: canvas.Canvas, x: float, y: float, label_w: float, col_w: floa
     c.setFont(SANS_BOLD, 7.5)
     c.setFillColor(MUTED)
     c.drawString(x, y + 14, _spaced("SEATS"))
-    bar_max = label_w + len(alts) * col_w - 60
+    bar_max = max(width - 100, 20)  # leave room for the option label + the value readout
     for i, alt in enumerate(alts):
         s = seats[i]
         by = y - i * 22
@@ -493,3 +565,58 @@ def _seat_bars(c: canvas.Canvas, x: float, y: float, label_w: float, col_w: floa
         c.setFont(SERIF, 11)
         c.setFillColor(INK_2)
         c.drawString(x + 60 + w + 6, by - 4, _fmt(s))
+
+
+# Space-mix segments — open-plan seats, private offices, conference rooms — each with its own
+# soft fill (reusing the plan legend colours), so the split reads consistently across the report.
+_MIX_SEGMENTS = [
+    ("open_space_seats", "Open-plan", ROOM_FILL["workstation"]),
+    ("offices", "Offices", ROOM_FILL["private_office"]),
+    ("conf_rooms", "Conference", ROOM_FILL["meeting_room"]),
+]
+
+
+def _space_mix_bars(c: canvas.Canvas, x: float, y: float, width: float, alts: list) -> None:
+    """Per-option stacked bar of the space mix (open seats / offices / conference), by count."""
+    c.setFont(SANS_BOLD, 7.5)
+    c.setFillColor(MUTED)
+    c.drawString(x, y + 14, _spaced("SPACE MIX"))
+    bar_max = max(width - 60, 20)
+    totals = []
+    for alt in alts:
+        m = alt.get("metrics", {}) or {}
+        totals.append(sum(m.get(k) or 0 for k, _, _ in _MIX_SEGMENTS))
+    peak = max(totals) or 1
+    for i, alt in enumerate(alts):
+        m = alt.get("metrics", {}) or {}
+        by = y - i * 22
+        c.setFont(SERIF, 11)
+        c.setFillColor(INK)
+        c.drawString(x, by - 2, f"Option {alt.get('id', '?')}")
+        cx = x + 60
+        scale = bar_max / peak
+        for key, _label, fill in _MIX_SEGMENTS:
+            seg = (m.get(key) or 0) * scale
+            if seg <= 0:
+                continue
+            c.setFillColor(fill)
+            c.setStrokeColor(INK)
+            c.setLineWidth(0.4)
+            c.rect(cx, by - 6, seg, 9, fill=1, stroke=1)
+            cx += seg
+        if totals[i] == 0:
+            c.setFont(SANS, 8)
+            c.setFillColor(MUTED)
+            c.drawString(x + 60, by - 2, EM_DASH)
+    # Segment legend under the bars.
+    ly = y - len(alts) * 22 - 6
+    lx = x
+    for _key, label, fill in _MIX_SEGMENTS:
+        c.setFillColor(fill)
+        c.setStrokeColor(INK)
+        c.setLineWidth(0.4)
+        c.rect(lx, ly, 9, 9, fill=1, stroke=1)
+        c.setFont(SANS, 7.5)
+        c.setFillColor(INK_2)
+        c.drawString(lx + 13, ly + 1, label)
+        lx += 22 + c.stringWidth(label, SANS, 7.5)

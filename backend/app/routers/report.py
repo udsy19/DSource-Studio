@@ -67,6 +67,8 @@ class ReportData(BaseModel):
     project: Project
     plan: Plan
     alternatives: list[Alternative]
+    render_image: str | None = None  # data-URL or bare base64 of the photoreal render, when present
+    qr_url: str | None = None  # honest link the cover QR points to (e.g. this project in DSource)
 
 
 @router.post("/report")

@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from app.ingestion.schema import Door, ExtractedLayout, FurnitureItem, Room, Wall
 from app.main import app
-from app.takeoff.layout_takeoff import build_layout_takeoff
+from app.takeoff.layout_takeoff import build_layout_takeoff, build_program_summary
 
 _XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -212,3 +212,33 @@ def test_layout_takeoff_endpoint_streams_xlsx():
     assert res.headers["content-type"] == _XLSX_MEDIA
     assert res.content
     assert len(load_workbook(io.BytesIO(res.content)).sheetnames) == 10
+
+
+def test_program_summary_groups_by_family_with_areas():
+    rows = _rows(build_program_summary(_layout())["Program Summary"])
+    assert rows[0] == ("Family", "Room Type", "Count", "Total Area (sqf)",
+                       "Total Area (m2)", "Avg Area (sqf)")
+    body = {r[1]: r for r in rows[1:] if r[1]}
+    # office room -> Offices family, 1 room, 200 sqf measured.
+    assert body["office"][0] == "Offices"
+    assert body["office"][2] == 1
+    assert body["office"][3] == 200.0
+    # meeting -> Conference; Offices sorts before Conference (family order).
+    assert body["meeting"][0] == "Conference"
+    families_in_order = [r[0] for r in rows[1:] if r[1]]
+    assert families_in_order == ["Offices", "Conference"]
+
+
+def test_program_summary_total_row():
+    rows = _rows(build_program_summary(_layout())["Program Summary"])
+    total = next(r for r in rows if r[0] == "Total")
+    assert total[2] == 2  # two rooms
+    assert total[3] == 400.0  # 200 + 200 sqf
+
+
+def test_program_summary_endpoint_streams_xlsx():
+    client = TestClient(app)
+    res = client.post("/api/layout/program-summary", json=_fit_shaped_dict())
+    assert res.status_code == 200
+    assert res.headers["content-type"] == _XLSX_MEDIA
+    assert load_workbook(io.BytesIO(res.content)).sheetnames == ["Program Summary"]

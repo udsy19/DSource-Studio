@@ -6,6 +6,16 @@ raw PDF (avoids adding a pypdf test dependency).
 
 from app.report.service import build_report_pdf
 
+# A 1x1 PNG (transparent), the smallest thing ImageReader can decode — for the render-page tests.
+_TINY_PNG = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def _count_pages(pdf: bytes) -> int:
+    return pdf.count(b"/Type /Page\n") + pdf.count(b"/Type /Page ")
+
 
 def _instances() -> list[dict]:
     # A handful of each type laid out on a 60x40 ft grid (world feet).
@@ -67,7 +77,28 @@ def test_returns_pdf_bytes():
 def test_has_five_pages():
     pdf = build_report_pdf(_report_data())
     # cover + 3 alternatives + summary
-    assert pdf.count(b"/Type /Page\n") + pdf.count(b"/Type /Page ") == 5
+    assert _count_pages(pdf) == 5
+
+
+def test_render_page_added_only_when_present():
+    without = build_report_pdf(_report_data())
+    with_render = build_report_pdf({**_report_data(), "render_image": _TINY_PNG})
+    # The render page appears (cover + render + 3 alternatives + summary), only when a render exists.
+    assert _count_pages(with_render) == _count_pages(without) + 1 == 6
+
+
+def test_undecodable_render_is_skipped_not_faked():
+    data = {**_report_data(), "render_image": "data:image/png;base64,not-base64!!!"}
+    pdf = build_report_pdf(data)
+    # Bad image never crashes and never adds a blank page — the report degrades honestly.
+    assert pdf.startswith(b"%PDF")
+    assert _count_pages(pdf) == 5
+
+
+def test_qr_url_renders_without_error():
+    pdf = build_report_pdf({**_report_data(), "qr_url": "https://dsource.app/p/two-harbour"})
+    assert pdf.startswith(b"%PDF")
+    assert _count_pages(pdf) == 5  # the QR sits on the cover, adding no page
 
 
 def test_missing_metric_renders_em_dash():

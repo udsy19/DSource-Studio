@@ -10,6 +10,7 @@ import io
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 from pydantic import BaseModel
 
 from ..ingestion.cad_reader import read_cad
@@ -17,23 +18,26 @@ from ..ingestion.layout_metrics import compute_layout_metrics
 from ..ingestion.room_merge import merge_rooms
 from ..ingestion.schema import ExtractedLayout
 from ..takeoff.bom import build_bom
-from ..takeoff.layout_takeoff import build_layout_takeoff
+from ..takeoff.layout_takeoff import build_layout_takeoff, build_program_summary
 
 router = APIRouter(tags=["takeoff"])
 
 _XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _stream_takeoff(layout: ExtractedLayout) -> StreamingResponse:
-    wb = build_layout_takeoff(layout)
+def _stream_workbook(wb: Workbook, filename: str) -> StreamingResponse:
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
     return StreamingResponse(
         buffer,
         media_type=_XLSX_MEDIA,
-        headers={"Content-Disposition": 'attachment; filename="layout-takeoff.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _stream_takeoff(layout: ExtractedLayout) -> StreamingResponse:
+    return _stream_workbook(build_layout_takeoff(layout), "layout-takeoff.xlsx")
 
 
 @router.post("/api/ingest/takeoff")
@@ -55,6 +59,12 @@ async def layout_to_takeoff(file: UploadFile = File(...)):
 async def adopted_layout_to_takeoff(layout: ExtractedLayout):
     """Takeoff from an already-extracted layout (e.g. an adopted generated version), sent as JSON."""
     return _stream_takeoff(layout)
+
+
+@router.post("/api/layout/program-summary")
+async def layout_program_summary(layout: ExtractedLayout):
+    """Program summary spreadsheet — rooms grouped by family, with counts and measured areas."""
+    return _stream_workbook(build_program_summary(layout), "program-summary.xlsx")
 
 
 @router.post("/api/layout/bom")

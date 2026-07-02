@@ -50,6 +50,26 @@ _SPACE_TYPE = {
 
 _CUSTOM = "Can be customized"
 
+# Room type -> program family, for the Program Summary. Mirrors the frontend ROOM_FAMILY grouping
+# (Studio.tsx) so the spreadsheet and the on-screen program tree agree on how rooms are bucketed.
+_ROOM_FAMILY = {
+    "office": "Offices",
+    "meeting": "Conference",
+    "huddle": "Collaboration",
+    "collab": "Collaboration",
+    "phone": "Collaboration",
+    "reception": "Amenities",
+    "kitchen": "Amenities",
+    "wellness": "Amenities",
+    "copy_print": "Amenities",
+    "storage": "Amenities",
+    "amenity": "Amenities",
+    "open": "Open plan",
+    "circulation": "Circulation",
+    "core": "Core",
+}
+_FAMILY_ORDER = ["Offices", "Conference", "Collaboration", "Open plan", "Amenities", "Circulation", "Core"]
+
 
 def _cm(feet: float) -> int:
     return round(feet * _FT_TO_CM)
@@ -242,4 +262,56 @@ def build_layout_takeoff(layout: ExtractedLayout) -> Workbook:
         ws.append([
             "Note: most rooms have no closed polygon — those items are Room ID '—' (Unassigned)."
         ])
+    return wb
+
+
+def _family(room_type: str) -> str:
+    return _ROOM_FAMILY.get(room_type, "Other")
+
+
+def build_program_summary(layout: ExtractedLayout) -> Workbook:
+    """Program summary workbook — rooms grouped by family, with counts and measured areas.
+
+    Every count and area is read from the layout's detected rooms; areas that the geometry could
+    not measure stay blank (never invented). A layout carries no requested program, so this reports
+    the ACTUAL detected program only — there is no target column to fabricate against."""
+    by_type: dict[str, dict] = {}
+    for room in layout.rooms:
+        if room.type == "unknown" and room.label is None:
+            continue
+        bucket = by_type.setdefault(
+            room.type,
+            {"family": _family(room.type), "count": 0, "area_sf": 0.0, "measured": 0},
+        )
+        bucket["count"] += 1
+        if room.area_sf is not None:
+            bucket["area_sf"] += room.area_sf
+            bucket["measured"] += 1
+
+    def _sort_key(item: tuple[str, dict]) -> tuple[int, str]:
+        family = item[1]["family"]
+        order = _FAMILY_ORDER.index(family) if family in _FAMILY_ORDER else len(_FAMILY_ORDER)
+        return (order, item[0])
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Program Summary"
+    _header(ws, ["Family", "Room Type", "Count", "Total Area (sqf)", "Total Area (m2)", "Avg Area (sqf)"])
+
+    total_count = 0
+    total_area = 0.0
+    for room_type, b in sorted(by_type.items(), key=_sort_key):
+        has_area = b["measured"] > 0
+        area_sf = round(b["area_sf"], 1) if has_area else None
+        area_m2 = round(b["area_sf"] * _SQFT_TO_SQM, 1) if has_area else None
+        avg_sf = round(b["area_sf"] / b["measured"], 1) if has_area else None
+        ws.append([b["family"], room_type, b["count"], area_sf, area_m2, avg_sf])
+        total_count += b["count"]
+        total_area += b["area_sf"]
+
+    ws.append([])
+    ws.append([
+        "Total", "", total_count, round(total_area, 1),
+        round(total_area * _SQFT_TO_SQM, 1), None,
+    ])
     return wb
