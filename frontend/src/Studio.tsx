@@ -35,7 +35,7 @@ import SpaceView from "./components/SpaceView";
 import { Callout, Eyebrow, Segmented } from "./design/ui";
 import WizardStepper, { type WizardStep } from "./components/WizardStepper";
 import { layoutFromFit, rotatePoint } from "./fitToLayout";
-import { type ProjectStatus, type WorkflowProject } from "./workflowProjects";
+import { listEditedDesigns, type ProjectStatus, type WorkflowProject } from "./workflowProjects";
 import type {
   Alternative,
   CatalogSetting,
@@ -343,7 +343,7 @@ function pointInPolygon(px: number, py: number, poly: [number, number][]): boole
 // Rasterize the on-screen plan/3D SVG to a JPEG data URL for the render provider. The plan's fills
 // are CSS var()s that don't resolve in a detached SVG, so the resolved :root custom properties are
 // copied onto the clone (custom props inherit, so descendants then resolve against them).
-async function captureSvgJpeg(svg: SVGSVGElement, scale = 2): Promise<string> {
+export async function captureSvgJpeg(svg: SVGSVGElement, scale = 2): Promise<string> {
   const vb = svg.viewBox.baseVal;
   const w = Math.max(1, vb.width || svg.clientWidth);
   const h = Math.max(1, vb.height || svg.clientHeight);
@@ -402,9 +402,13 @@ type Deliverable = { kind: string; label: string; meta: string; run: () => Promi
 export default function Studio({
   project,
   onStatus,
+  resume,
+  onClose,
 }: {
   project?: WorkflowProject | null;
   onStatus?: (s: ProjectStatus) => void;
+  resume?: boolean; // reopen straight into the scene editor on this project's latest saved design
+  onClose?: () => void; // exit the studio back to the Projects dashboard
 }) {
   // Guided pipeline: the current stage. Replaces the old read/generate toggle.
   const [step, setStep] = useState<WizardStep>("property");
@@ -1433,6 +1437,22 @@ export default function Studio({
     </>
   );
 
+  // Reopen a saved edited design straight into the scene editor (from the Projects dashboard),
+  // seeded from its persisted scene with a fresh undo stack. Exits back to Projects.
+  const resumeDesign = resume && project ? listEditedDesigns(project.id)[0] : undefined;
+  if (resumeDesign) {
+    return (
+      <SceneEditor
+        savedScene={resumeDesign.scene as Parameters<typeof SceneEditor>[0]["savedScene"]}
+        projectId={project!.id}
+        designId={resumeDesign.id}
+        designName={resumeDesign.name}
+        forkedFrom={resumeDesign.forkedFrom}
+        onExit={() => onClose?.()}
+      />
+    );
+  }
+
   // The semantic scene editor is a distinct surface over the selected generated version — it
   // replaces the wizard while open, and exits back to the versions list.
   if (sceneEditing && versions && selected) {
@@ -1441,6 +1461,9 @@ export default function Studio({
         plan={versions.plan}
         testfit={selected.testfit}
         program={genMode === "detailed" ? sceneProgramTargets(detailed) : undefined}
+        projectId={project?.id}
+        forkedFrom={selected.id}
+        designName={`Design ${selected.id}`}
         onExit={() => setSceneEditing(false)}
       />
     );

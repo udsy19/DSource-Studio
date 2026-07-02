@@ -9,9 +9,11 @@ type View = "projects" | "studio" | "system";
 export default function App() {
   const [view, setView] = useState<View>("projects");
   const [active, setActive] = useState<WorkflowProject | null>(null);
+  const [resume, setResume] = useState(false); // reopen straight into the scene editor on a saved design
 
-  const openProject = (p: WorkflowProject) => {
+  const openProject = (p: WorkflowProject, resumeEditing = false) => {
     setActive(p);
+    setResume(resumeEditing);
     setView("studio");
   };
 
@@ -52,7 +54,14 @@ export default function App() {
 
       <div className="view">
         {view === "projects" && <Projects onOpen={openProject} />}
-        {view === "studio" && <Studio project={active} onStatus={setStatus} />}
+        {view === "studio" && (
+          <Studio
+            project={active}
+            onStatus={setStatus}
+            resume={resume}
+            onClose={() => { setResume(false); setView("projects"); }}
+          />
+        )}
         {view === "system" && <DesignSystem />}
       </div>
     </div>

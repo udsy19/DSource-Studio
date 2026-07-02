@@ -385,6 +385,19 @@ export async function downloadSceneDxf(scene: Scene): Promise<void> {
   );
 }
 
+// Quantity takeoff (.xlsx) for the CURRENT edited scene — the backend projects it to a layout
+// (deleted items gone, moved items at their new pose), so the BOM reflects post-edit reality.
+export async function downloadSceneTakeoff(scene: Scene): Promise<void> {
+  await downloadBlob(
+    await fetch("/api/scene/takeoff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scene }),
+    }),
+    "design-takeoff.xlsx",
+  );
+}
+
 export async function downloadReport(reportData: {
   project: import("./types").ReportProject;
   plan: import("./types").Plan;

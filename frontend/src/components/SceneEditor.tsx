@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applySceneCommand,
+  downloadRenderImage,
   downloadSceneDxf,
+  downloadSceneTakeoff,
   fetchSettings,
   num,
   sceneFromFit,
+  sceneMetrics,
 } from "../api";
-import { ArrangementThumb, SLOT_CATS } from "../Studio";
+import { ArrangementThumb, captureSvgJpeg, SLOT_CATS } from "../Studio";
+import { saveEditedDesign } from "../workflowProjects";
 import { closeRing } from "../fitToLayout";
 import { Callout, Eyebrow, Segmented } from "../design/ui";
 import type {
@@ -643,15 +647,27 @@ export default function SceneEditor({
   plan,
   testfit,
   program,
+  savedScene,
+  projectId,
+  designId,
+  designName,
+  forkedFrom,
   onExit,
 }: {
-  plan: Plan;
-  testfit: Alternative["testfit"];
+  plan?: Plan;
+  testfit?: Alternative["testfit"];
   program?: unknown;
+  // Reopen an already-saved edited design: seed the editor from this scene instead of from-fit.
+  savedScene?: Scene;
+  projectId?: string;
+  designId?: string;
+  designName?: string;
+  forkedFrom?: string | null;
   onExit: () => void;
 }) {
   const [history, setHistory] = useState<SceneState[]>([]);
   const [index, setIndex] = useState(-1);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ItemSelection | null>(null);
   const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
@@ -668,12 +684,19 @@ export default function SceneEditor({
   const canUndo = index > 0;
   const canRedo = index >= 0 && index < history.length - 1;
 
-  // Build the editable scene once, from the generated version.
+  // Seed the editor once: reopen a saved design (fresh undo stack from its scene) or build a fresh
+  // scene from the generated version. The undo history is session-scoped — a saved design never
+  // carries its stack, so reopening always starts clean at the saved state.
   useEffect(() => {
     let live = true;
     setBusy(true);
     setErr(null);
-    sceneFromFit(plan, testfit, program)
+    const load: Promise<SceneState> = savedScene
+      ? sceneMetrics(savedScene).then((m) => ({ scene: savedScene, metrics: m }))
+      : plan && testfit
+        ? sceneFromFit(plan, testfit, program)
+        : Promise.reject(new Error("Nothing to edit — open a generated version or a saved design."));
+    load
       .then((s) => {
         if (!live) return;
         setHistory([s]);
@@ -684,7 +707,7 @@ export default function SceneEditor({
     return () => {
       live = false;
     };
-  }, [plan, testfit, program]);
+  }, [plan, testfit, program, savedScene]);
 
   const undo = useCallback(() => setIndex((i) => (i > 0 ? i - 1 : i)), []);
   const redo = useCallback(() => setIndex((i) => (i < history.length - 1 ? i + 1 : i)), [history.length]);
@@ -835,6 +858,52 @@ export default function SceneEditor({
     }
   };
 
+  const exportTakeoff = async () => {
+    if (!scene) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await downloadSceneTakeoff(scene);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportPng = async () => {
+    const svg = document.querySelector<SVGSVGElement>(".plan-viewport svg");
+    if (!svg) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await downloadRenderImage(await captureSvgJpeg(svg));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Persist the CURRENT scene as this project's edited design (never the undo stack). Stable id per
+  // editor session so repeated saves update one record; new when opened fresh from a version.
+  const designKey = useMemo(() => designId ?? `d-${Date.now().toString(36)}`, [designId]);
+  const save = () => {
+    if (!scene) return;
+    if (!projectId) {
+      setSaveMsg("Open this from a project to save it.");
+      return;
+    }
+    const res = saveEditedDesign(projectId, {
+      id: designKey,
+      name: designName ?? "Edited design",
+      forkedFrom: forkedFrom ?? null,
+      scene,
+      updatedAt: Date.now(),
+    });
+    setSaveMsg(res.ok ? "Saved." : res.error);
+  };
+
   return (
     <main className="studio">
       <section className="stage">
@@ -869,9 +938,11 @@ export default function SceneEditor({
             <button type="button" className={`link-btn${mergeMode ? " is-on" : ""}`} aria-pressed={mergeMode} onClick={toggleMergeMode}>⇔ Merge</button>
             <button type="button" className="link-btn" onClick={undo} disabled={!canUndo} aria-label="Undo">↶ Undo</button>
             <button type="button" className="link-btn" onClick={redo} disabled={!canRedo} aria-label="Redo">↷ Redo</button>
+            <button type="button" className="link-btn" onClick={save} disabled={!scene}>Save</button>
           </div>
         </div>
 
+        {saveMsg && <div className="save-msg" role="status">{saveMsg}</div>}
         {err && <div className="err" role="alert">{err}</div>}
 
         {metrics && <SceneScoreboard metrics={metrics} />}
@@ -922,10 +993,20 @@ export default function SceneEditor({
         <hr className="ds-rule" />
         <div className="exports">
           <Eyebrow style={{ display: "block", marginBottom: 12 }}>Export</Eyebrow>
-          <button type="button" className="export-btn" onClick={exportDxf} disabled={!scene || busy}>
-            <span className="export-btn-label">CAD drawing</span>
-            <span className="export-btn-meta">{busy ? "Preparing…" : "DXF"}</span>
-          </button>
+          <div className="export-actions">
+            <button type="button" className="export-btn" onClick={exportDxf} disabled={!scene || busy}>
+              <span className="export-btn-label">CAD drawing</span>
+              <span className="export-btn-meta">{busy ? "Preparing…" : "DXF"}</span>
+            </button>
+            <button type="button" className="export-btn" onClick={exportTakeoff} disabled={!scene || busy}>
+              <span className="export-btn-label">Quantity takeoff</span>
+              <span className="export-btn-meta">{busy ? "Preparing…" : "Excel · post-edit BOM"}</span>
+            </button>
+            <button type="button" className="export-btn" onClick={exportPng} disabled={!scene || busy}>
+              <span className="export-btn-label">Plan image</span>
+              <span className="export-btn-meta">{busy ? "Preparing…" : "PNG"}</span>
+            </button>
+          </div>
         </div>
       </aside>
     </main>
