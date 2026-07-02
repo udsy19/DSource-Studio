@@ -219,8 +219,17 @@ export interface RoomRequest {
   preferred_y?: number;
 }
 
+// A hard placement pin — a room of this type must be seated containing (x, y), in PLAN FEET. Valid
+// only against the plate it was dropped on; replacing the plate clears anchors (mirrors backend).
+export interface Anchor {
+  room_type: RoomType;
+  x: number;
+  y: number;
+}
+
 export interface DetailedProgram {
   rooms: RoomRequest[];
+  anchors?: Anchor[];
   desk_type: ConceptProgram["desk_type"];
   desk_width_cm: number;
   desk_depth_cm: number;

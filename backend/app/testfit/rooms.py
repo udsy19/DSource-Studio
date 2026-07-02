@@ -203,3 +203,56 @@ def _commit_room(
     ))
     placed_polys.append(rect)
     return True
+
+
+def place_at_anchor(
+    spec: RoomSpec,
+    ax: float,
+    ay: float,
+    boundary_poly: Polygon,
+    cores: list[Polygon],
+    column_circles: list,
+    occupied_polys: list[Polygon],
+) -> PlacedRoom | None:
+    """Seat `spec` so its axis-aligned footprint CONTAINS the anchor (ax, ay), as centred on the point
+    as feasibility allows. This is the HARD anchor path — unlike the perimeter/interior packers it
+    places anywhere on the plate. Returns the PlacedRoom (caller reserves it) or None when no valid
+    containing slot fits (an unsatisfiable anchor — the core, a wall, or a competing room owns the spot).
+
+    Deterministic: candidate origins are scanned on a fixed 1 ft grid over the band that keeps the
+    anchor inside the footprint; the valid rect whose centre sits nearest the anchor wins (ties broken
+    by scan order), so competing anchors always resolve the same way.
+    """
+    w, h = spec.width_ft, spec.depth_ft
+    prepared = prep(boundary_poly)
+
+    def valid(rect: Polygon) -> bool:
+        if not (rect.is_valid and prepared.contains(rect)):
+            return False
+        if any(rect.intersects(c) for c in cores):
+            return False
+        if any(rect.intersects(col) for col in column_circles):
+            return False
+        return all(rect.intersection(pp).area <= 1e-9 for pp in occupied_polys)
+
+    best: Polygon | None = None
+    best_dist = float("inf")
+    step = 1.0
+    ox = ax - w
+    while ox <= ax + 1e-9:
+        oy = ay - h
+        while oy <= ay + 1e-9:
+            rect = box(ox, oy, ox + w, oy + h)
+            if valid(rect):
+                dist = (ox + w / 2 - ax) ** 2 + (oy + h / 2 - ay) ** 2
+                if dist < best_dist:
+                    best_dist, best = dist, rect
+            oy += step
+        ox += step
+    if best is None:
+        return None
+    minx, miny, maxx, maxy = _axis_aligned_bbox(best)
+    return PlacedRoom(
+        type=spec.type, x=round(minx, 2), y=round(miny, 2),
+        w=round(maxx - minx, 2), h=round(maxy - miny, 2), rotation=0, setting=spec.setting,
+    )

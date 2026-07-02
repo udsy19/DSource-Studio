@@ -27,6 +27,8 @@ Deterministic: same program -> same output. Returns the shared `AlternativesResu
 
 from __future__ import annotations
 
+from collections import Counter
+
 from pydantic import BaseModel, Field, field_validator
 from shapely.geometry import Polygon, box
 
@@ -45,7 +47,7 @@ from .layout import (
 )
 from .metrics import compute_metrics
 from .payloads import plan_payload, testfit_payload
-from .rooms import RoomSpec, place_perimeter_rooms
+from .rooms import RoomSpec, place_at_anchor, place_perimeter_rooms
 from .scoring import score_variants
 from .settings import Setting, load_settings
 from .zones import place_interior_rooms
@@ -68,10 +70,28 @@ class RoomRequest(BaseModel):
         return v
 
 
+class Anchor(BaseModel):
+    """A hard placement pin: a room of `room_type` MUST be seated containing (x, y). Coordinates are
+    plan feet, valid only against the plate the pin was dropped on — replacing the plate must clear
+    the anchors (stale coordinates would silently mis-seed the placer on a different building)."""
+
+    room_type: str
+    x: float
+    y: float
+
+    @field_validator("room_type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if not is_valid_key(v):
+            raise ValueError(f"unknown room type {v!r}")
+        return v
+
+
 class DetailedProgram(BaseModel):
     """Explicit per-type room counts + placement, plus the desk geometry dials from Concept."""
 
     rooms: list[RoomRequest] = Field(default_factory=list)
+    anchors: list[Anchor] = Field(default_factory=list)
     desk_type: str = Field("workstations", pattern="^(workstations|benchings)$")
     desk_width_cm: int = Field(140, gt=0)
     desk_depth_cm: int = Field(70, gt=0)
@@ -221,8 +241,33 @@ def _placed_by_catalog_key(program, placed, density_scale: float) -> dict[str, i
         want = max(0, round(req.count * density_scale)) if density_scale < 1.0 else req.count
         give = min(want, placed_by_instance.get(inst, 0))
         out[req.type] = out.get(req.type, 0) + give
-        placed_by_instance[inst] -= give
+        placed_by_instance[inst] = placed_by_instance.get(inst, 0) - give
     return out
+
+
+def _place_anchors(
+    program: DetailedProgram, usable: Polygon, cores: list[Polygon], columns: list,
+    pre_occupied: list[Polygon],
+) -> tuple[list[FurnitureInstance], list[Anchor], list[Polygon]]:
+    """Seat every anchored room (hard) before free placement, in a deterministic order — largest
+    footprint first, ties broken by anchor coordinate, so competing anchors always resolve the same
+    way. Returns (placed anchor instances, unsatisfied anchors, reserved footprints incl. the placed).
+    """
+    ordered = sorted(
+        program.anchors,
+        key=lambda a: (-(room_spec(a.room_type).width_ft * room_spec(a.room_type).depth_ft), a.x, a.y),
+    )
+    placed: list[FurnitureInstance] = []
+    unsatisfied: list[Anchor] = []
+    occupied = list(pre_occupied)
+    for a in ordered:
+        room = place_at_anchor(room_spec(a.room_type), a.x, a.y, usable, cores, columns, occupied)
+        if room is None:
+            unsatisfied.append(a)
+        else:
+            placed.append(FurnitureInstance(room.type, room.x, room.y, room.w, room.h, room.rotation))
+            occupied.append(box(room.x, room.y, room.x + room.w, room.y + room.h))
+    return placed, unsatisfied, occupied
 
 
 def _build_testfit(
@@ -249,16 +294,27 @@ def _build_testfit(
 
     cores = _cores(plan)
     columns = _column_circles(plan, spec)
+
+    # Anchors are hard, placed first and identically in every variant (density scaling only touches
+    # free rooms). A satisfied OR unsatisfied anchor consumes one requested room of its type — an
+    # unsatisfied anchor is an unplaced instance, never backfilled by a free room.
+    anchored, unsatisfied, anchor_occupied = _place_anchors(program, usable, cores, columns, locked_boxes)
+    anchor_counts = Counter(a.room_type for a in program.anchors)
+    free_program = program.model_copy(update={
+        "anchors": [],
+        "rooms": [r.model_copy(update={"count": max(0, r.count - anchor_counts.get(r.type, 0))}) for r in program.rooms],
+    })
+
     room_instances, occupied = _place_rooms(
-        program, usable, cores, columns, spec, density_scale,
-        pre_occupied=locked_boxes, locked_by_instance=locked_by_instance,
+        free_program, usable, cores, columns, spec, density_scale,
+        pre_occupied=anchor_occupied, locked_by_instance=locked_by_instance,
     )
-    placed_by_type = _placed_by_catalog_key(program, locked_rooms + room_instances, density_scale)
+    placed_by_type = _placed_by_catalog_key(program, locked_rooms + anchored + room_instances, density_scale)
 
     region = _interior_region(usable, cores, columns, occupied)
     workstations = _place_workstation_field(region, spec)
 
-    instances = locked + room_instances + workstations
+    instances = locked + anchored + room_instances + workstations
     instances = slot_settings(instances, load_settings() if settings is None else settings)
     office_count = sum(1 for i in instances if i.type == "private_office")
     meeting_count = sum(1 for i in instances if i.type == "meeting_room")
@@ -267,6 +323,11 @@ def _build_testfit(
     placeable_sf = round(_placeable_region(plan, spec).area, 1)
 
     notes = _honesty_notes(requested, placed_by_type)
+    if unsatisfied:
+        notes.append(
+            f"{len(unsatisfied)} pinned room(s) couldn't be placed on their anchor (the spot was "
+            "taken by the core, a wall, or another pin) — surfaced, never moved silently."
+        )
     return TestFit(
         workstation_count=len(workstations),
         office_count=office_count,
@@ -275,7 +336,11 @@ def _build_testfit(
         instances=instances,
         placeable_area_sf=placeable_sf,
         sf_per_workstation=round(placeable_sf / len(workstations), 1) if workstations else None,
-        program={"requested": requested, "placed": placed_by_type},
+        program={
+            "requested": requested,
+            "placed": placed_by_type,
+            "unsatisfied_anchors": [{"room_type": a.room_type, "x": a.x, "y": a.y} for a in unsatisfied],
+        },
         notes=notes,
     )
 

@@ -810,6 +810,13 @@ header.bar {
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position: right 14px center, right 9px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
 
+/* Program anchor pins — the room-type picker to arm the next plan click */
+.anchor-select {
+  width: 100%; padding: 10px 12px; background: var(--paper); color: var(--ink);
+  border: 1px solid var(--line-2); border-radius: var(--r1); font: 500 13px/1 var(--sans); cursor: pointer;
+}
+.anchor-select:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+
 /* program starter templates — one click seeds a saved program state */
 .program-templates { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .tmpl-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; text-align: left;

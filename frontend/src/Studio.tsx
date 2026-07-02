@@ -160,6 +160,10 @@ const ROOM_TYPES: { type: string; label: string }[] = [
 ];
 // type -> short label for the room list; covers every Room.type the reader can emit.
 const ROOM_TYPE_LABEL: Record<string, string> = Object.fromEntries(ROOM_TYPES.map((r) => [r.type, r.label]));
+// Detailed catalog type -> label (Program anchor pins name their pinned room).
+const DETAILED_LABEL: Record<string, string> = Object.fromEntries(
+  ROOM_CATALOG.flatMap((f) => f.rooms.map((r) => [r.type, r.label])),
+);
 // Enclosed room types (for the Open/Enclosed readout) — the rest read as open.
 const ENCLOSED_TYPES = new Set(["office", "meeting", "huddle", "storage", "kitchen", "restroom", "core"]);
 // Merged area (sf) at or above which a merged room reads as boardroom-scale in the suggestion. Below
@@ -435,6 +439,9 @@ export default function Studio({
   // Space-step room markers (seeds) + the pending marker type awaiting a click on the plan.
   const [markers, setMarkers] = useState<RoomSeed[]>([]);
   const [pendingMarker, setPendingMarker] = useState<{ type: string; label: string } | null>(null);
+  // Program-step anchor pins: the detailed room type armed for the next plan click ("" = none). The
+  // pins themselves live on `detailed.anchors`; this is only the placement cursor.
+  const [anchorType, setAnchorType] = useState<string>("");
   // Space-step planning-area polygon (feet) + whether we're drawing it, and the keep-walls toggle.
   // Both re-run detection: the polygon clips the analyzed area, keep-walls skips gap-healing.
   const [planningArea, setPlanningArea] = useState<[number, number][]>([]);
@@ -686,6 +693,21 @@ export default function Studio({
     setMarkers((m) => [...m, { ...pendingMarker, x, y }]);
     setPendingMarker(null);
   };
+  // Drop an anchor pin for the armed room type at the clicked plan point (world feet). Count coupling:
+  // adding a pin bumps that type's count so it never asks for fewer rooms than are pinned — the
+  // steppers and pins stay consistent by construction, never a hidden validation error at Submit.
+  const placeAnchor = (x: number, y: number) => {
+    if (!anchorType) return;
+    const anchors = [...(detailed.anchors ?? []), { room_type: anchorType as RoomType, x, y }];
+    const pins = anchors.filter((a) => a.room_type === anchorType).length;
+    const rooms = detailed.rooms.some((r) => r.type === anchorType)
+      ? detailed.rooms.map((r) => (r.type === anchorType ? { ...r, count: Math.max(r.count, pins) } : r))
+      : [...detailed.rooms, { type: anchorType as RoomType, count: pins, placement: "flexible" as Placement }];
+    setDetailed({ ...detailed, anchors, rooms });
+  };
+  // Delete a pin (by index) — never decrements the count: the user may still want that room, unpinned.
+  const deleteAnchor = (idx: number) =>
+    setDetailed({ ...detailed, anchors: (detailed.anchors ?? []).filter((_, i) => i !== idx) });
   // Append a planning-area vertex where the user clicked the plan (world feet).
   const addAreaVertex = (x: number, y: number) => setPlanningArea((a) => [...a, [x, y]]);
   // Toggle planning-area draw mode. Starting clears any prior polygon (draw fresh) and cancels a
@@ -907,6 +929,10 @@ export default function Studio({
     setPlanningArea([]);
     setDrawingArea(false);
     setKeepWalls(false);
+    // Anchor pins are plan-feet coordinates against the OLD plate — clear them so a new building never
+    // gets silently mis-seeded by stale points (the Program step shows a note explaining this).
+    setAnchorType("");
+    setDetailed((d) => ({ ...d, anchors: [] }));
     dismissSwap();
     setFile(f);
     try {
@@ -964,6 +990,11 @@ export default function Studio({
     </div>
   );
 
+  // Anchor pins as plan markers (shown in the Program step, reusing the Space-step marker rendering).
+  const anchorMarkers = (detailed.anchors ?? []).map((a) => ({
+    type: a.room_type, label: DETAILED_LABEL[a.room_type] ?? a.room_type, x: a.x, y: a.y,
+  }));
+
   const layoutStage = layout && (
     <>
       {viewToggle}
@@ -983,9 +1014,9 @@ export default function Studio({
           onDeleteFurniture={deleteFurniture}
           selectedDoorIndex={selectedDoor}
           onSelectDoor={selectDoor}
-          markers={step === "space" ? markers : undefined}
-          placing={step === "space" && !!pendingMarker}
-          onPlacePoint={step === "space" ? placeMarker : undefined}
+          markers={step === "space" ? markers : step === "program" ? anchorMarkers : undefined}
+          placing={(step === "space" && !!pendingMarker) || (step === "program" && !!anchorType)}
+          onPlacePoint={step === "space" ? placeMarker : step === "program" ? placeAnchor : undefined}
           planningArea={step === "space" && planningArea.length ? planningArea : undefined}
           drawingArea={step === "space" && drawingArea}
           onAreaPoint={step === "space" ? addAreaVertex : undefined}
@@ -1437,6 +1468,49 @@ export default function Studio({
               <ConceptForm concept={concept} onChange={setConcept} />
             ) : (
               <DetailedForm program={detailed} onChange={setDetailed} />
+            )}
+
+            {genMode === "detailed" && layout && (
+              <div className="anchors">
+                <hr className="ds-rule" />
+                <Eyebrow style={{ display: "block", margin: "4px 0 10px" }}>Anchor pins · place rooms on the plan</Eyebrow>
+                <label className="brief-field">
+                  <span className="brief-label">Pin a room type</span>
+                  <select
+                    className="anchor-select"
+                    value={anchorType}
+                    onChange={(e) => setAnchorType(e.target.value)}
+                    aria-label="Room type to pin"
+                  >
+                    <option value="">Choose a type…</option>
+                    {ROOM_CATALOG.flatMap((f) => f.rooms).map((r) => (
+                      <option key={r.type} value={r.type}>{r.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {anchorType && (
+                  <Callout>
+                    Click the plan to pin a <b>{DETAILED_LABEL[anchorType]}</b>.{" "}
+                    <button type="button" className="link-btn" onClick={() => setAnchorType("")}>Done</button>
+                  </Callout>
+                )}
+                {(detailed.anchors ?? []).length > 0 && (
+                  <div className="markers-list">
+                    {(detailed.anchors ?? []).map((a, i) => (
+                      <div className="marker-row" key={i}>
+                        <span className="marker-row-label">
+                          {DETAILED_LABEL[a.room_type] ?? a.room_type} · {Math.round(a.x)}, {Math.round(a.y)} ft
+                        </span>
+                        <button type="button" className="marker-del" aria-label={`Remove ${DETAILED_LABEL[a.room_type] ?? a.room_type} pin`} onClick={() => deleteAnchor(i)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="disclaim" style={{ marginTop: 8 }}>
+                  A pin forces that room onto the spot; it also bumps the room's count. Pins are tied to
+                  this plate — re-uploading the plate clears them.
+                </p>
+              </div>
             )}
           </>
         )}
