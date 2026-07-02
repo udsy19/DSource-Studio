@@ -115,12 +115,101 @@ def test_load_settings_absent_returns_empty(tmp_path):
     assert load_settings(tmp_path / "nope.json") == []
 
 
-def test_save_load_round_trip(tmp_path):
+def test_save_load_derives_plate_on_read(tmp_path):
+    """save writes the raw plate; load runs the derivation pass over it — geometry + SKUs preserved,
+    seat count stored, prices tagged as US-list estimates, human title generated (no manifest)."""
     from app.testfit.settings import save_settings
 
-    settings = [_office_setting()]
-    path = save_settings(settings, tmp_path / "settings.json")
-    assert load_settings(path) == settings
+    path = save_settings([_office_setting()], tmp_path / "settings.json")
+    [plate] = load_settings(path)
+
+    assert plate.id == "APL00122"
+    assert {f.model for f in plate.furniture} == {"OBBORDER05", "442A40"}
+    assert plate.capacity == 1  # one chair
+    assert plate.title == "Private Office · 1 seats · 5×5"  # fallback: no manifest
+    assert all(f.price_basis == "list_us" for f in plate.furniture)  # never a real price
+
+
+def _raw_plate(furniture, sid="AB1PLAN", stype="collaboration", w=16.0, h=11.0):
+    return {"id": sid, "setting_type": stype, "sqft": round(w * h, 1),
+            "width_ft": w, "height_ft": h, "furniture": furniture}
+
+
+def _raw_item(category, model, price=None, dx=0.0, dy=0.0, w=2.0, h=2.0):
+    return {"category": category, "brand": "Steelcase" if model else None, "model": model,
+            "list_price": price, "dx": dx, "dy": dy, "w": w, "h": h, "rotation": 0.0}
+
+
+def test_derive_filters_cad_refs_keeps_furniture():
+    """The noise filter drops `*C`-style CAD sub-component refs (no SKU) into `_raw`, keeps SKU'd
+    pieces and recognized furniture categories as displayable items."""
+    from app.testfit.settings import derive_plates
+
+    raw = [_raw_plate([
+        _raw_item("chair", "COALT100", 688.0),       # SKU'd furniture -> kept
+        _raw_item("other", "AXTMSTCKSHPCRV", 1180.0),  # SKU'd 'other' -> kept
+        _raw_item("other", "*C5"),                     # CAD ref, no SKU -> dropped to _raw
+        _raw_item("table", None),                      # SLOT_CATS, no SKU -> kept
+    ])]
+    [plate] = derive_plates(raw, {})
+
+    kept = {f.model for f in plate.furniture}
+    assert kept == {"COALT100", "AXTMSTCKSHPCRV", None}  # the table (no model) kept, *C5 gone
+    assert [r["model"] for r in plate._raw] == ["*C5"]
+
+
+def test_derive_capacity_is_seat_count():
+    from app.testfit.settings import derive_plates
+
+    raw = [_raw_plate([
+        _raw_item("chair", "CH1"), _raw_item("chair", "CH2"), _raw_item("stool", "ST1"),
+        _raw_item("sofa", "SO1"), _raw_item("table", "TB1"),  # table is not a seat
+    ])]
+    [plate] = derive_plates(raw, {})
+    assert plate.capacity == 4  # 2 chairs + 1 stool + 1 sofa
+
+
+def test_derive_title_from_manifest_else_fallback():
+    from app.testfit.settings import derive_plates
+
+    raw = [_raw_plate([_raw_item("chair", "CH1")], sid="named-plate", stype="meeting_room",
+                      w=12.0, h=10.0),
+           _raw_plate([_raw_item("chair", "CH2")], sid="orphan-plate", stype="private_office",
+                      w=10.0, h=11.0)]
+    manifest = {"named-plate": {"slug": "named-plate", "title": "Team Studio - AB1",
+                                "setting_types": ["Meeting Spaces"]}}
+    named, orphan = derive_plates(raw, manifest)
+
+    assert named.title == "Team Studio - AB1" and named.source_category == "Meeting Spaces"
+    assert orphan.title == "Private Office · 1 seats · 10×11"  # generated, never the raw slug
+    assert "orphan-plate" not in orphan.title
+    assert orphan.source_category is None
+
+
+def test_derive_drops_outdoor_and_work_from_home():
+    from app.testfit.settings import derive_plates
+
+    raw = [_raw_plate([_raw_item("chair", "C1")], sid="p-out"),
+           _raw_plate([_raw_item("chair", "C2")], sid="p-wfh"),
+           _raw_plate([_raw_item("chair", "C3")], sid="p-keep")]
+    manifest = {
+        "p-out": {"slug": "p-out", "title": "Patio", "setting_types": ["Outdoor"]},
+        "p-wfh": {"slug": "p-wfh", "title": "Home Desk", "setting_types": ["Work from Home"]},
+        "p-keep": {"slug": "p-keep", "title": "Lounge", "setting_types": ["Uncategorized"]},
+    }
+    plates = derive_plates(raw, manifest)
+    assert [p.id for p in plates] == ["p-keep"]  # Outdoor + WFH dropped, Uncategorized kept
+
+
+def test_settings_for_fits_rotated():
+    """A plate fits a zone if it fits in EITHER orientation: an 11x16 plate fits a 16x12 zone rotated."""
+    from app.testfit.settings import settings_for
+
+    tall = Setting(id="t", setting_type="meeting_room", sqft=176, width_ft=11, height_ft=16)
+    assert [s.id for s in settings_for([tall], "meeting_room", max_w=16, max_h=12)] == ["t"]
+    # but a genuinely oversized plate still doesn't fit either way
+    huge = Setting(id="h", setting_type="meeting_room", sqft=400, width_ft=20, height_ft=20)
+    assert settings_for([huge], "meeting_room", max_w=16, max_h=12) == []
 
 
 def test_generator_furnishes_rooms_from_settings_and_is_parametric_without():

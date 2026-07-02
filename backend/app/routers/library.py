@@ -47,7 +47,8 @@ def list_settings(
         settings = settings_for(settings, type, max_w, max_h)
     elif type:
         settings = [s for s in settings if s.setting_type == type]
-    return [asdict(s) for s in settings]
+    # drop private fields (the raw CAD sub-component refs on `_raw`) — never surfaced.
+    return [{k: v for k, v in asdict(s).items() if not k.startswith("_")} for s in settings]
 
 
 @router.get("/products")

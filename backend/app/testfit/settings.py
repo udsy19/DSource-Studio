@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import bisect
 import json
+import logging
 import os
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ..ingestion.schema import ExtractedLayout
+
+_log = logging.getLogger(__name__)
 
 # Setting types align with the generator's enclosed-room instance types so slotting matches by
 # equality. "open" is a workstation field — kept OUT of room slotting (the open plan stays as-is).
@@ -32,6 +35,12 @@ SLOTTABLE_TYPES = ("private_office", "meeting_room", "collaboration")
 SLOT_CATS = frozenset({
     "chair", "desk", "table", "sofa", "stool", "workstation", "storage", "tv", "planter",
 })
+
+# Seating a plate's capacity is counted from — a plate seats what it seats (one item, one seat).
+SEAT_CATS = frozenset({"chair", "stool", "sofa"})
+
+# Steelcase source categories (manifest `setting_types`) we drop entirely: out of our typology scope.
+_DROP_SOURCE_CATEGORIES = frozenset({"Outdoor", "Work from Home"})
 
 # Sane room footprint per type: drops CAD-unit-glitch outliers (21 sf, 64,000 sf, even 7.7-billion
 # sf) AND keeps each enclosed room a realistic size so MANY rich applications place on a plate
@@ -105,6 +114,9 @@ class SettingFurniture:
     # real plan geometry as polylines relative to the setting min-corner (empty = footprint only),
     # so a slotted/swapped piece can render its true shape at any target origin.
     outline: list[list[tuple[float, float]]] = field(default_factory=list)
+    # provenance of `list_price`: "list_us" (a US list price, estimate + fallback only — the real
+    # BOM back-matches each SKU to the India catalog) or None when the piece carries no price.
+    price_basis: str | None = None
 
 
 @dataclass
@@ -115,6 +127,14 @@ class Setting:
     width_ft: float
     height_ft: float
     furniture: list[SettingFurniture] = field(default_factory=list)
+    # inferred seat count, stored at derivation (chair/stool/sofa items).
+    capacity: int = 0
+    # human title from the Steelcase manifest (never a raw slug); generated fallback when uncovered.
+    title: str = ""
+    # Steelcase's own source category (manifest `setting_types`), for filtering. None when uncovered.
+    source_category: str | None = None
+    # dropped raw CAD sub-component refs (no SKU, not real furniture) — retained, never displayed.
+    _raw: list[dict] = field(default_factory=list)
 
 
 def infer_setting_type(furniture: list[SettingFurniture], sqft: float) -> str:
@@ -215,12 +235,13 @@ def build_products(settings: list[Setting]) -> list[LibraryProduct]:
 
 def settings_for(settings: list[Setting], setting_type: str, max_w: float, max_h: float,
                  tol: float = 0.5) -> list[Setting]:
-    """Settings of `setting_type` whose footprint fits within (max_w, max_h) — room-swap alternatives,
-    largest first (best fill of the room)."""
-    fit = [
-        s for s in settings
-        if s.setting_type == setting_type and s.width_ft <= max_w + tol and s.height_ft <= max_h + tol
-    ]
+    """Settings of `setting_type` whose footprint fits within (max_w, max_h) in EITHER orientation
+    (a plate can be dropped rotated 90°) — room-swap alternatives, largest first (best fill)."""
+    def fits(s: Setting) -> bool:
+        return ((s.width_ft <= max_w + tol and s.height_ft <= max_h + tol)
+                or (s.height_ft <= max_w + tol and s.width_ft <= max_h + tol))
+
+    fit = [s for s in settings if s.setting_type == setting_type and fits(s)]
     return sorted(fit, key=lambda s: s.sqft, reverse=True)
 
 
@@ -249,6 +270,77 @@ def _settings_dir() -> Path:
 
 def _settings_path() -> Path:
     return _settings_dir() / "settings.json"
+
+
+# ── derivation: distil the scraped plates into the served plate library ─────
+# The scraped settings.json is raw (every CAD sub-component ref included, no titles/capacity). One
+# derivation pass — run once at load — filters items to real furniture, counts seats, joins human
+# titles + source category from the manifest, and tags prices as estimates, so every consumer
+# (palette, editor, BOM) sees the same clean plate.
+
+def _is_real_item(item: dict) -> bool:
+    """A real, displayable furniture piece: it carries a genuine SKU (not a `*C5`-style CAD ref) OR
+    it's a recognized furniture category. Everything else is construction geometry, dropped."""
+    model = item.get("model") or ""
+    has_sku = bool(model) and not model.startswith("*")
+    return has_sku or item.get("category") in SLOT_CATS
+
+
+def _fallback_title(setting_type: str, capacity: int, width_ft: float, height_ft: float) -> str:
+    """A human plate name for the plates the manifest doesn't cover — never a raw slug."""
+    label = setting_type.replace("_", " ").title()
+    return f"{label} · {capacity} seats · {round(width_ft)}×{round(height_ft)}"
+
+
+def _read_manifest(path: Path) -> dict[str, dict]:
+    """Steelcase manifest keyed by slug (== a plate id), or empty when absent (fallback naming)."""
+    if not path.exists():
+        return {}
+    return {m["slug"]: m for m in json.loads(path.read_text())}
+
+
+def derive_plates(raw: list[dict], manifest: dict[str, dict]) -> list[Setting]:
+    """The derivation pass: raw scraped plates + manifest -> the served plate library. Drops
+    out-of-scope source categories (Outdoor / Work from Home), filters each plate's items to real
+    furniture (raw refs stashed on `_raw`), stores the seat count, joins the manifest title +
+    source category, and tags every list price as a US-list estimate."""
+    plates: list[Setting] = []
+    dropped_typology = 0
+    for r in raw:
+        entry = manifest.get(r["id"])
+        source_category = (entry.get("setting_types") or [None])[0] if entry else None
+        if source_category in _DROP_SOURCE_CATEGORIES:
+            dropped_typology += 1
+            continue
+
+        kept: list[SettingFurniture] = []
+        raw_refs: list[dict] = []
+        for item in r["furniture"]:
+            if not _is_real_item(item):
+                raw_refs.append(item)
+                continue
+            priced = (item.get("list_price") or 0) > 0
+            kept.append(SettingFurniture(
+                category=item["category"], brand=item.get("brand"), model=item.get("model"),
+                list_price=item["list_price"] if priced else None,
+                dx=item["dx"], dy=item["dy"], w=item["w"], h=item["h"], rotation=item["rotation"],
+                outline=item.get("outline", []),
+                price_basis="list_us" if priced else None,
+            ))
+
+        capacity = sum(1 for f in kept if f.category in SEAT_CATS)
+        title = entry["title"] if entry else _fallback_title(
+            r["setting_type"], capacity, r["width_ft"], r["height_ft"])
+        plates.append(Setting(
+            id=r["id"], setting_type=r["setting_type"], sqft=r["sqft"],
+            width_ft=r["width_ft"], height_ft=r["height_ft"],
+            capacity=capacity, title=title, source_category=source_category,
+            furniture=kept, _raw=raw_refs,
+        ))
+
+    if dropped_typology:
+        _log.info("plate derivation dropped %d Outdoor/Work-from-Home plates", dropped_typology)
+    return plates
 
 
 # ── per-SKU real geometry ──────────────────────────────────────────────────
@@ -362,28 +454,25 @@ def save_settings(settings: list[Setting], path: Path | None = None) -> Path:
 _settings_cache: list[Setting] | None = None
 
 
-def _read_settings(source: Path) -> list[Setting]:
-    if not source.exists():
+def _derive_library(settings_path: Path) -> list[Setting]:
+    """Read the scraped plates + sibling manifest and run the derivation pass; [] when absent."""
+    if not settings_path.exists():
         return []
-    return [
-        Setting(
-            id=s["id"], setting_type=s["setting_type"], sqft=s["sqft"],
-            width_ft=s["width_ft"], height_ft=s["height_ft"],
-            furniture=[SettingFurniture(**f) for f in s["furniture"]],
-        )
-        for s in json.loads(source.read_text())
-    ]
+    raw = json.loads(settings_path.read_text())
+    manifest = _read_manifest(settings_path.parent / "manifest.json")
+    return derive_plates(raw, manifest)
 
 
 def load_settings(path: Path | None = None) -> list[Setting]:
-    """Read the built library, or [] when it's absent — so the engine degrades to parametric.
+    """The served plate library (derived from the scraped plates), or [] when absent — so the
+    engine degrades to parametric.
 
-    The default-path read is cached process-wide (the library is built offline + read-only at
-    runtime), so each generate/iterate doesn't re-read and re-parse settings.json from disk. An
-    explicit `path` (tests) bypasses the cache."""
+    The default-path derivation is cached process-wide (the plates are built offline + read-only at
+    runtime), so each generate/iterate doesn't re-read + re-derive from disk. An explicit `path`
+    (tests) bypasses the cache and reads its sibling manifest.json."""
     global _settings_cache
     if path is not None:
-        return _read_settings(path)
+        return _derive_library(path)
     if _settings_cache is None:
-        _settings_cache = _read_settings(_settings_path())
+        _settings_cache = _derive_library(_settings_path())
     return _settings_cache

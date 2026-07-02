@@ -1270,18 +1270,19 @@ export default function Studio({
               {swapSettings?.map((s) => {
                 const pcs = s.furniture.filter((sf) => SLOT_CATS.has(sf.category)).length;
                 const selected = appliedSettingId === s.id;
+                const label = s.title || settingLabel(s.setting_type);
                 return (
                   <button
                     type="button"
                     key={s.id}
                     className={`arr-card${selected ? " is-selected" : ""}`}
                     aria-pressed={selected}
-                    aria-label={`${settingLabel(s.setting_type)}, ${num(s.sqft)} square feet, ${pcs} pieces`}
+                    aria-label={`${label}, ${s.capacity} seats, ${num(s.sqft)} square feet, ${pcs} pieces`}
                     onClick={() => applyRoomSwap(s)}
                   >
                     <ArrangementThumb setting={s} />
-                    <span className="arr-label">{settingLabel(s.setting_type)}</span>
-                    <span className="arr-meta">{num(s.sqft)} sf · {pcs} pcs</span>
+                    <span className="arr-label">{label}</span>
+                    <span className="arr-meta">{s.capacity} seats · {num(s.sqft)} sf · {pcs} pcs</span>
                   </button>
                 );
               })}

@@ -325,6 +325,9 @@ export interface SettingFurniture {
   brand: string;
   model: string;
   list_price?: number | null;
+  // provenance of list_price: 'list_us' = a US list price (estimate/fallback, not the real INR
+  // BOM price), null when unpriced. Never present a list_us figure as the price.
+  price_basis?: 'list_us' | null;
   dx: number;
   dy: number;
   w: number;
@@ -340,5 +343,9 @@ export interface CatalogSetting {
   sqft: number;
   width_ft: number;
   height_ft: number;
+  // derived plate fields: human title (never a raw slug), inferred seat count, Steelcase source category.
+  title: string;
+  capacity: number;
+  source_category?: string | null;
   furniture: SettingFurniture[];
 }
