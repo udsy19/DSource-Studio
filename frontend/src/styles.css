@@ -125,6 +125,8 @@ header.bar {
 /* rotate grip — the accent handle just outside a selected piece; drag it to spin the piece */
 .rotate-grip circle { cursor: grab; outline: none; }
 .rotate-grip circle:active { cursor: grabbing; }
+.layout-door.is-selected { cursor: grab; }
+.door-flip-grip { cursor: pointer; outline: none; }
 .rotate-grip circle:focus-visible { stroke: var(--ink); stroke-width: 0.4; }
 
 /* item delete — the ✕ affordance pinned at a selected piece's corner */

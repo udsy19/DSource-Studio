@@ -169,6 +169,8 @@ function SceneCanvas({
   onDeleteItem,
   selectedDoorId,
   onSelectDoor,
+  onSlideDoor,
+  onFlipDoor,
 }: {
   scene: Scene;
   selectedZoneId: string | null;
@@ -183,6 +185,8 @@ function SceneCanvas({
   onDeleteItem: (sel: ItemSelection) => void;
   selectedDoorId: string | null;
   onSelectDoor: (id: string) => void;
+  onSlideDoor: (id: string, offset: number) => void;
+  onFlipDoor: (id: string) => void;
 }) {
   const [minX, minY, maxX, maxY] = polygonBounds(scene.underlay.boundary as [number, number][]);
   const view = useView(minX, minY, maxX, maxY);
@@ -205,6 +209,11 @@ function SceneCanvas({
   // Live rotation of the selected item via its grip: the previewed degrees, committed on pointer-up.
   const [rotating, setRotating] = useState<{ key: string; deg: number } | null>(null);
   const rotateStart = useRef<{ key: string; moved: boolean } | null>(null);
+
+  // Active slide of a door along its host wall: the door id + live offset (feet from segment start),
+  // committed on pointer-up. Mirrors the item-drag idiom; the offset is clamped to the jamb bound.
+  const [doorDrag, setDoorDrag] = useState<{ id: string; offset: number } | null>(null);
+  const doorDragStart = useRef<{ id: string; moved: boolean } | null>(null);
 
   // A door swing at a world hinge + world-CCW angle — the leaf line + the quarter-circle arc, drawn
   // in the door's local frame (same convention as PlanCanvas's LayoutPlan doors).
@@ -459,7 +468,8 @@ function SceneCanvas({
           ))}
 
           {/* generated door swings — hosted on a generated partition, positioned by offset along it.
-              Selectable for the door panel (flip swing, nudge along wall). */}
+              Drag the door along its wall (offset committed on release, clamped to the jamb bound like
+              the server), tap its ⟲ grip to flip the swing. Selection happens on press. */}
           {scene.doors.map((d) => {
             const host = partitionById.get(d.host_partition_id);
             if (!host) return null;
@@ -468,8 +478,10 @@ function SceneCanvas({
             const ux = (x2 - x1) / len;
             const uy = (y2 - y1) / len;
             const angle = (Math.atan2(uy, ux) * 180) / Math.PI;
-            const hx = x1 + ux * d.offset;
-            const hy = y1 + uy * d.offset;
+            const maxOffset = Math.max(0, len - d.width); // jamb bound — mirrors EditDoor's server clamp
+            const off = doorDrag?.id === d.id ? doorDrag.offset : d.offset;
+            const hx = x1 + ux * off;
+            const hy = y1 + uy * off;
             const selected = selectedDoorId === d.id;
             return (
               <g
@@ -478,18 +490,56 @@ function SceneCanvas({
                 role="button"
                 tabIndex={0}
                 aria-pressed={selected}
-                aria-label={`Edit door, ${(d.width * 12).toFixed(0)} inch leaf`}
+                aria-label={`Move door, ${(d.width * 12).toFixed(0)} inch leaf`}
                 transform={`translate(${view.fx(hx)} ${view.fy(hy)}) rotate(${-angle})`}
                 stroke={selected ? "var(--accent)" : "var(--wall-door)"}
                 fill="none"
                 vectorEffect="non-scaling-stroke"
-                onClick={() => { if (!api.didDrag()) onSelectDoor(d.id); }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectDoor(d.id); }
+                  else if (e.key === "f" || e.key === "F") { e.preventDefault(); onFlipDoor(d.id); }
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation(); // slide the door, not a canvas pan
+                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                  onSelectDoor(d.id);
+                  doorDragStart.current = { id: d.id, moved: false };
+                }}
+                onPointerMove={(e) => {
+                  if (doorDragStart.current?.id !== d.id) return;
+                  const p = api.worldPoint({ x: e.clientX, y: e.clientY });
+                  const proj = (p.x - x1) * ux + (p.y - y1) * uy;
+                  const next = Math.min(Math.max(proj, 0), maxOffset);
+                  if (Math.abs(next - d.offset) > MOVE_MIN_FT) doorDragStart.current.moved = true;
+                  setDoorDrag({ id: d.id, offset: next });
+                }}
+                onPointerUp={() => {
+                  const ds = doorDragStart.current;
+                  if (ds?.id === d.id && ds.moved && doorDrag?.id === d.id) {
+                    onSlideDoor(d.id, doorDrag.offset);
+                  }
+                  doorDragStart.current = null;
+                  setDoorDrag(null);
                 }}
               >
+                {/* wide transparent band so the thin leaf is easy to grab */}
+                <line x1={0} y1={0} x2={d.width} y2={0} stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" />
                 <line x1={0} y1={0} x2={d.width} y2={0} vectorEffect="non-scaling-stroke" />
                 <path d={doorSwingPath(d.width, d.swing === "right")} strokeOpacity={0.5} vectorEffect="non-scaling-stroke" />
+                {selected && (
+                  <circle
+                    className="door-flip-grip"
+                    cx={d.width / 2}
+                    cy={-2}
+                    r={1.2}
+                    fill="var(--accent)"
+                    stroke="none"
+                    role="button"
+                    aria-label="Flip door swing"
+                    onPointerDown={(e) => { e.stopPropagation(); /* flip, not a slide */ }}
+                    onClick={(e) => { e.stopPropagation(); onFlipDoor(d.id); }}
+                  />
+                )}
               </g>
             );
           })}
@@ -643,9 +693,9 @@ function ZonePanel({
   );
 }
 
-// The selected-door panel — flip the swing side + nudge the door along its host wall (±6″). Mirrors
-// the ZonePanel styling (swap-panel + prop-recap + export-btn actions).
-function DoorPanel({ door, onFlip, onNudge }: { door: SceneDoor; onFlip: () => void; onNudge: (delta: number) => void }) {
+// The selected-door panel — properties only. Sliding along the wall and flipping the swing are
+// direct on-canvas gestures now (drag the door, tap its flip grip), so the panel just recaps.
+function DoorPanel({ door }: { door: SceneDoor }) {
   return (
     <div className="swap-panel" role="group" aria-label="Door">
       <div className="swap-head">
@@ -657,20 +707,8 @@ function DoorPanel({ door, onFlip, onNudge }: { door: SceneDoor; onFlip: () => v
           <div className="prop-row"><span className="prop-k">Offset</span><span className="prop-v">{num(door.offset)}′</span></div>
           <div className="prop-row"><span className="prop-k">Swing</span><span className="prop-v">{door.swing}</span></div>
         </div>
-        <Eyebrow style={{ display: "block", margin: "16px 0 8px" }}>Adjust</Eyebrow>
+        <p className="disclaim" style={{ marginTop: 12 }}>Drag the door along its wall to reposition it; tap its ⟲ grip to flip the swing.</p>
       </div>
-      <button type="button" className="export-btn" onClick={onFlip}>
-        <span className="export-btn-label">Flip swing side</span>
-        <span className="export-btn-meta">mirror the arc</span>
-      </button>
-      <button type="button" className="export-btn" onClick={() => onNudge(-0.5)}>
-        <span className="export-btn-label">Nudge along wall</span>
-        <span className="export-btn-meta">−6″</span>
-      </button>
-      <button type="button" className="export-btn" onClick={() => onNudge(0.5)}>
-        <span className="export-btn-label">Nudge along wall</span>
-        <span className="export-btn-meta">+6″</span>
-      </button>
     </div>
   );
 }
@@ -847,12 +885,8 @@ export default function SceneEditor({
     setSelectedItem(null);
     apply({ type: "delete_item", ...sel });
   };
-  const flipDoor = () => {
-    if (selectedDoorId) apply({ type: "edit_door", door_id: selectedDoorId, flip_swing: true });
-  };
-  const nudgeDoor = (delta: number) => {
-    if (selectedDoor) apply({ type: "edit_door", door_id: selectedDoor.id, offset: selectedDoor.offset + delta });
-  };
+  const flipDoor = (id: string) => apply({ type: "edit_door", door_id: id, flip_swing: true });
+  const slideDoor = (id: string, offset: number) => apply({ type: "edit_door", door_id: id, offset });
 
   const toggleMergeMode = () => {
     clearSelection();
@@ -957,6 +991,8 @@ export default function SceneEditor({
             onDeleteItem={deleteItem}
             selectedDoorId={selectedDoorId}
             onSelectDoor={selectDoor}
+            onSlideDoor={slideDoor}
+            onFlipDoor={flipDoor}
           />
         ) : (
           <div className="empty">
@@ -1007,7 +1043,7 @@ export default function SceneEditor({
             ) : selectedItem ? (
               <Callout quiet>Drag to move, use the grip to rotate, and Delete (or the ✕) to remove this piece. Esc deselects.</Callout>
             ) : selectedDoor ? (
-              <DoorPanel door={selectedDoor} onFlip={flipDoor} onNudge={nudgeDoor} />
+              <DoorPanel door={selectedDoor} />
             ) : metrics && selectedZone ? (
               <ZonePanel
                 zone={selectedZone}
