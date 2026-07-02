@@ -68,6 +68,12 @@ const normalizeDelta = (deg: number) => {
   return x > 180 ? x - 360 : x;
 };
 
+// The backend snaps every rotation to 45° (_snap_45), so the live grip preview snaps to the same
+// grid — a small drag visibly clicks to the next detent instead of silently rounding home (which
+// read as "rotate is broken"). A bare click on the grip (no drag) rotates +90°, a Canva idiom.
+const CLICK_ROTATE_DEG = 90;
+const snap45 = (deg: number) => (((Math.round(deg / 45) * 45) % 360) + 360) % 360;
+
 type WorldItem = {
   key: string;
   placement_id: string;
@@ -178,7 +184,7 @@ function SceneCanvas({
   const MOVE_MIN_FT = 0.25;
   // Live rotation of the selected item via its grip: the previewed degrees, committed on pointer-up.
   const [rotating, setRotating] = useState<{ key: string; deg: number } | null>(null);
-  const rotateStart = useRef<{ key: string } | null>(null);
+  const rotateStart = useRef<{ key: string; moved: boolean } | null>(null);
 
   // A door swing at a world hinge + world-CCW angle — the leaf line + the quarter-circle arc, drawn
   // in the door's local frame (same convention as PlanCanvas's LayoutPlan doors).
@@ -365,16 +371,23 @@ function SceneCanvas({
                   onPointerDown={(e) => {
                     e.stopPropagation(); // rotate, not a canvas pan or item move
                     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-                    rotateStart.current = { key: it.key };
+                    rotateStart.current = { key: it.key, moved: false };
                   }}
                   onPointerMove={(e) => {
                     if (rotateStart.current?.key !== it.key) return;
+                    rotateStart.current.moved = true;
                     const p = api.worldPoint({ x: e.clientX, y: e.clientY });
-                    setRotating({ key: it.key, deg: rotationToPointer(wcx, wcy, p.x, p.y, e.shiftKey) });
+                    setRotating({ key: it.key, deg: snap45(rotationToPointer(wcx, wcy, p.x, p.y)) });
                   }}
                   onPointerUp={() => {
-                    if (rotateStart.current?.key === it.key && rotating?.key === it.key) {
-                      onRotateItem(sel, normalizeDelta(rotating.deg - it.rotation));
+                    const rs = rotateStart.current;
+                    if (rs?.key === it.key) {
+                      if (!rs.moved) {
+                        onRotateItem(sel, CLICK_ROTATE_DEG); // bare click → +90° detent
+                      } else if (rotating?.key === it.key) {
+                        const delta = normalizeDelta(rotating.deg - it.rotation);
+                        if (delta !== 0) onRotateItem(sel, delta);
+                      }
                     }
                     rotateStart.current = null;
                     setRotating(null);
