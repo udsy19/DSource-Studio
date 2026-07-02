@@ -122,6 +122,10 @@ header.bar {
 .rotate-grip circle:active { cursor: grabbing; }
 .rotate-grip circle:focus-visible { stroke: var(--ink); stroke-width: 0.4; }
 
+/* item delete — the ✕ affordance pinned at a selected piece's corner */
+.item-delete { cursor: pointer; outline: none; }
+.item-delete:focus-visible circle { stroke-width: 0.4; }
+
 /* floating room tag — name + area near the cursor / focused room */
 .room-tag { position: absolute; z-index: 7; transform: translate(-50%, calc(-100% - 10px));
   pointer-events: none; display: flex; flex-direction: column; gap: 1px;

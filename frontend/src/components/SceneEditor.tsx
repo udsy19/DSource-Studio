@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applySceneCommand,
   downloadSceneDxf,
@@ -16,6 +16,7 @@ import type {
   Plan,
   Scene,
   SceneCommand,
+  SceneDoor,
   SceneMetrics,
   SceneState,
   SceneZone,
@@ -27,6 +28,7 @@ import {
   FURN,
   PlanStage,
   pocheBands,
+  rotationToPointer,
   useView,
   WALL,
   type PlanApi,
@@ -51,10 +53,32 @@ const SCENE_ROOM_TYPES: { value: string; label: string }[] = [
 const roomTypeLabel = (rt: string) =>
   SCENE_ROOM_TYPES.find((t) => t.value === rt)?.label ?? rt;
 
-type WorldItem = { category: string; x: number; y: number; w: number; h: number; rotation: number };
+// Stable identity for a placed item — the placement it belongs to + its plate-item ref, so a
+// selection survives moves/rotates (those change the pose, never the ref).
+const itemKey = (placementId: string, itemRef: number) => `${placementId}:${itemRef}`;
+type ItemSelection = { placement_id: string; item_ref: number };
+
+// Normalize a rotation delta to (-180, 180] so a grip-drag sends the short way round.
+const normalizeDelta = (deg: number) => {
+  const x = ((deg % 360) + 360) % 360;
+  return x > 180 ? x - 360 : x;
+};
+
+type WorldItem = {
+  key: string;
+  placement_id: string;
+  item_ref: number;
+  category: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+};
 
 // Every non-deleted placed item in world feet — the frontend mirror of scene.geometry.resolved_items:
-// placement origin + the plate item's local pose (or its per-item override).
+// placement origin + the plate item's local pose (or its per-item override). Carries the placement +
+// plate-item ref so a canvas click resolves straight to a move/rotate/delete command target.
 function resolveItems(scene: Scene): WorldItem[] {
   const out: WorldItem[] = [];
   for (const pl of scene.placements) {
@@ -65,6 +89,9 @@ function resolveItems(scene: Scene): WorldItem[] {
       if (it.deleted || !base) continue;
       const t = it.transform_override;
       out.push({
+        key: itemKey(pl.id, it.plate_item_ref),
+        placement_id: pl.id,
+        item_ref: it.plate_item_ref,
         category: base.category,
         x: pl.transform.x + (t ? t.x : base.dx),
         y: pl.transform.y + (t ? t.y : base.dy),
@@ -99,15 +126,37 @@ const zoneCentroid = (pts: [number, number][]): [number, number] => [
 
 // The renderer: the locked gray underlay + tinted editable zones + resolved furniture + generated
 // walls & door swings. Reuses PlanCanvas's pan/zoom shell (PlanStage), poché bands, family tints and
-// door-swing path so it reads identically to the test-fit plan.
+// door-swing path so it reads identically to the test-fit plan. Zones, placement items and generated
+// doors are selectable/editable — the underlay stays locked. The move/rotate/delete idiom (drag +
+// preview transform, north-edge rotate grip, snap steps) mirrors PlanCanvas's LayoutPlan furniture.
 function SceneCanvas({
   scene,
   selectedZoneId,
   onSelectZone,
+  mergeMode,
+  mergeSelection,
+  onToggleMergeZone,
+  selectedItem,
+  onSelectItem,
+  onMoveItem,
+  onRotateItem,
+  onDeleteItem,
+  selectedDoorId,
+  onSelectDoor,
 }: {
   scene: Scene;
   selectedZoneId: string | null;
   onSelectZone: (id: string) => void;
+  mergeMode: boolean;
+  mergeSelection: string[];
+  onToggleMergeZone: (id: string) => void;
+  selectedItem: ItemSelection | null;
+  onSelectItem: (sel: ItemSelection) => void;
+  onMoveItem: (sel: ItemSelection, dx: number, dy: number) => void;
+  onRotateItem: (sel: ItemSelection, delta: number) => void;
+  onDeleteItem: (sel: ItemSelection) => void;
+  selectedDoorId: string | null;
+  onSelectDoor: (id: string) => void;
 }) {
   const [minX, minY, maxX, maxY] = polygonBounds(scene.underlay.boundary as [number, number][]);
   const view = useView(minX, minY, maxX, maxY);
@@ -116,6 +165,16 @@ function SceneCanvas({
     () => new Map(scene.partitions.map((p) => [p.id, p] as const)),
     [scene.partitions],
   );
+  const selectedItemKey = selectedItem ? itemKey(selectedItem.placement_id, selectedItem.item_ref) : null;
+
+  // Active drag of a placement item: its key + the live world-feet offset (for the preview
+  // transform). A move commits on pointer-up; a drag past MOVE_MIN_FT suppresses the select click.
+  const [drag, setDrag] = useState<{ key: string; dx: number; dy: number } | null>(null);
+  const dragStart = useRef<{ x: number; y: number; key: string; moved: boolean } | null>(null);
+  const MOVE_MIN_FT = 0.25;
+  // Live rotation of the selected item via its grip: the previewed degrees, committed on pointer-up.
+  const [rotating, setRotating] = useState<{ key: string; deg: number } | null>(null);
+  const rotateStart = useRef<{ key: string } | null>(null);
 
   // A door swing at a world hinge + world-CCW angle — the leaf line + the quarter-circle arc, drawn
   // in the door's local frame (same convention as PlanCanvas's LayoutPlan doors).
@@ -140,27 +199,34 @@ function SceneCanvas({
       kind="EDITABLE DESIGN"
       draw={(api: PlanApi) => (
         <>
-          {/* editable zones — tinted by room family; a click selects, the terracotta ring marks it */}
+          {/* editable zones — tinted by room family; a click selects (or, in merge mode, picks the
+              zone), the terracotta ring marks the selection */}
           {scene.zones.map((z) => {
             const fam = ZONE_FAMILY[z.room_type] ?? "open";
             const name = roomTypeLabel(z.room_type);
             const area = polygonArea(z.polygon);
+            const picked = mergeMode ? mergeSelection.includes(z.id) : selectedZoneId === z.id;
             const pts = z.polygon
               .map(([x, y]) => `${view.fx(x).toFixed(2)},${view.fy(y).toFixed(2)}`)
               .join(" ");
             const [cx, cy] = zoneCentroid(z.polygon);
+            const activate = () => (mergeMode ? onToggleMergeZone(z.id) : onSelectZone(z.id));
             return (
               <g
                 key={`zone-${z.id}`}
-                className={`layout-room${selectedZoneId === z.id ? " is-selected" : ""}`}
+                className={`layout-room${picked ? " is-selected" : ""}`}
                 role="button"
                 tabIndex={0}
-                aria-pressed={selectedZoneId === z.id}
-                aria-label={`Select ${name}, ${Math.round(area)} square feet`}
+                aria-pressed={picked}
+                aria-label={
+                  mergeMode
+                    ? `${picked ? "Remove" : "Add"} ${name} ${picked ? "from" : "to"} merge selection, ${Math.round(area)} square feet`
+                    : `Select ${name}, ${Math.round(area)} square feet`
+                }
                 {...api.bindRoom(name, area)}
-                onClick={() => { if (!api.didDrag()) onSelectZone(z.id); }}
+                onClick={() => { if (!api.didDrag()) activate(); }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectZone(z.id); }
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); }
                 }}
               >
                 <polygon
@@ -200,24 +266,149 @@ function SceneCanvas({
             )}
           </g>
 
-          {/* resolved furniture — each placed item as its plan symbol at its world pose */}
-          {items.map((it, i) => {
+          {/* resolved furniture — each placed item as its plan symbol at its world pose. Selectable;
+              the selected item can be dragged (live preview) and rotated by its grip, mirroring the
+              LayoutPlan furniture interaction. */}
+          {items.map((it) => {
             const cat = it.category as FurnitureCategory;
+            const selected = selectedItemKey === it.key;
+            const dragging = drag?.key === it.key;
+            const rot = rotating?.key === it.key ? rotating.deg : it.rotation;
             const ox = view.fx(it.x);
             const oy = view.fy(it.y + it.h);
-            const cx = view.fx(it.x + it.w / 2);
-            const cy = view.fy(it.y + it.h / 2);
+            const csx = view.fx(it.x + it.w / 2);
+            const csy = view.fy(it.y + it.h / 2);
+            const previewT = dragging ? `translate(${drag!.dx} ${-drag!.dy}) ` : "";
+            const sel: ItemSelection = { placement_id: it.placement_id, item_ref: it.item_ref };
             return (
               <g
-                key={`item-${i}`}
-                transform={`translate(${ox} ${oy}) rotate(${-it.rotation} ${cx - ox} ${cy - oy})`}
+                key={`item-${it.key}`}
+                className={`layout-furn is-movable${selected ? " is-selected" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selected}
+                aria-label={`Move or delete ${cat}`}
+                transform={`${previewT}rotate(${-rot} ${csx} ${csy}) translate(${ox} ${oy})`}
                 fill={`var(${FURN[cat] ?? "--furn-other"})`}
                 fillOpacity={0.14}
+                onClick={() => {
+                  if (api.didDrag() || dragStart.current?.moved) return;
+                  onSelectItem(sel);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectItem(sel); }
+                  else if (e.key === "[" || e.key === "]") { e.preventDefault(); onRotateItem(sel, e.key === "]" ? 15 : -15); }
+                  else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); onDeleteItem(sel); }
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation(); // begin an item drag, not a canvas pan
+                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                  dragStart.current = { x: e.clientX, y: e.clientY, key: it.key, moved: false };
+                }}
+                onPointerMove={(e) => {
+                  const s = dragStart.current;
+                  if (!s || s.key !== it.key) return;
+                  const d = api.worldDelta({ x: s.x, y: s.y }, { x: e.clientX, y: e.clientY });
+                  if (Math.abs(d.dx) > MOVE_MIN_FT || Math.abs(d.dy) > MOVE_MIN_FT) s.moved = true;
+                  setDrag({ key: it.key, dx: d.dx, dy: d.dy });
+                }}
+                onPointerUp={() => {
+                  const s = dragStart.current;
+                  if (s && s.key === it.key && s.moved && drag && drag.key === it.key) {
+                    onMoveItem(sel, drag.dx, drag.dy);
+                  }
+                  setDrag(null); // dragStart kept so the trailing onClick sees `moved` and skips select
+                }}
               >
                 {furnitureSymbol(cat, it.w, it.h)}
               </g>
             );
           })}
+
+          {/* rotate grip — a handle just outside the selected item's bbox; drag it to spin the item
+              about its centre (live preview, snap on Shift), or use ←/→ · [ ] for 15° steps. */}
+          {selectedItemKey && (() => {
+            const it = items.find((g) => g.key === selectedItemKey);
+            if (!it) return null;
+            const sel: ItemSelection = { placement_id: it.placement_id, item_ref: it.item_ref };
+            const rot = rotating?.key === it.key ? rotating.deg : it.rotation;
+            const wcx = it.x + it.w / 2;
+            const wcy = it.y + it.h / 2;
+            const reach = Math.max(it.w, it.h) / 2 + 2.4;
+            const ang = ((90 + rot) * Math.PI) / 180;
+            const gx = view.fx(wcx + reach * Math.cos(ang));
+            const gy = view.fy(wcy + reach * Math.sin(ang));
+            const cx = view.fx(wcx);
+            const cy = view.fy(wcy);
+            return (
+              <g className="rotate-grip">
+                <line x1={cx} y1={cy} x2={gx} y2={gy} stroke="var(--accent)" strokeOpacity={0.5} vectorEffect="non-scaling-stroke" />
+                <circle
+                  cx={gx}
+                  cy={gy}
+                  r={1.3}
+                  fill="var(--accent)"
+                  role="slider"
+                  tabIndex={0}
+                  aria-label={`Rotate ${it.category}`}
+                  aria-valuenow={Math.round(rot)}
+                  aria-valuemin={0}
+                  aria-valuemax={360}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft" || e.key === "[") { e.preventDefault(); onRotateItem(sel, -15); }
+                    else if (e.key === "ArrowRight" || e.key === "]") { e.preventDefault(); onRotateItem(sel, 15); }
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation(); // rotate, not a canvas pan or item move
+                    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                    rotateStart.current = { key: it.key };
+                  }}
+                  onPointerMove={(e) => {
+                    if (rotateStart.current?.key !== it.key) return;
+                    const p = api.worldPoint({ x: e.clientX, y: e.clientY });
+                    setRotating({ key: it.key, deg: rotationToPointer(wcx, wcy, p.x, p.y, e.shiftKey) });
+                  }}
+                  onPointerUp={() => {
+                    if (rotateStart.current?.key === it.key && rotating?.key === it.key) {
+                      onRotateItem(sel, normalizeDelta(rotating.deg - it.rotation));
+                    }
+                    rotateStart.current = null;
+                    setRotating(null);
+                  }}
+                />
+              </g>
+            );
+          })()}
+
+          {/* delete affordance — the selected item's floating toolbar, pinned at its top-left corner
+              (screen space, so it never rotates away). Del/Backspace does the same. */}
+          {selectedItemKey && (() => {
+            const it = items.find((g) => g.key === selectedItemKey);
+            if (!it) return null;
+            const sel: ItemSelection = { placement_id: it.placement_id, item_ref: it.item_ref };
+            const bx = view.fx(it.x) - 1.6;
+            const by = view.fy(it.y + it.h) - 1.6;
+            const r = 1.3;
+            return (
+              <g
+                className="item-delete"
+                role="button"
+                tabIndex={0}
+                aria-label={`Delete ${it.category}`}
+                onClick={() => onDeleteItem(sel)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " " || e.key === "Delete" || e.key === "Backspace") {
+                    e.preventDefault();
+                    onDeleteItem(sel);
+                  }
+                }}
+              >
+                <circle cx={bx} cy={by} r={r} fill="var(--paper)" stroke="var(--accent)" vectorEffect="non-scaling-stroke" />
+                <line x1={bx - 0.5} y1={by - 0.5} x2={bx + 0.5} y2={by + 0.5} stroke="var(--accent)" vectorEffect="non-scaling-stroke" />
+                <line x1={bx - 0.5} y1={by + 0.5} x2={bx + 0.5} y2={by - 0.5} stroke="var(--accent)" vectorEffect="non-scaling-stroke" />
+              </g>
+            );
+          })()}
 
           {/* generated partitions — the editable interior walls, drywall poché */}
           {scene.partitions.map((p) => (
@@ -228,7 +419,8 @@ function SceneCanvas({
             </g>
           ))}
 
-          {/* generated door swings — hosted on a generated partition, positioned by offset along it */}
+          {/* generated door swings — hosted on a generated partition, positioned by offset along it.
+              Selectable for the door panel (flip swing, nudge along wall). */}
           {scene.doors.map((d) => {
             const host = partitionById.get(d.host_partition_id);
             if (!host) return null;
@@ -237,7 +429,30 @@ function SceneCanvas({
             const ux = (x2 - x1) / len;
             const uy = (y2 - y1) / len;
             const angle = (Math.atan2(uy, ux) * 180) / Math.PI;
-            return doorSwing(`door-${d.id}`, x1 + ux * d.offset, y1 + uy * d.offset, angle, d.width, d.swing === "right", false);
+            const hx = x1 + ux * d.offset;
+            const hy = y1 + uy * d.offset;
+            const selected = selectedDoorId === d.id;
+            return (
+              <g
+                key={`door-${d.id}`}
+                className={`layout-door${selected ? " is-selected" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selected}
+                aria-label={`Edit door, ${(d.width * 12).toFixed(0)} inch leaf`}
+                transform={`translate(${view.fx(hx)} ${view.fy(hy)}) rotate(${-angle})`}
+                stroke={selected ? "var(--accent)" : "var(--wall-door)"}
+                fill="none"
+                vectorEffect="non-scaling-stroke"
+                onClick={() => { if (!api.didDrag()) onSelectDoor(d.id); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectDoor(d.id); }
+                }}
+              >
+                <line x1={0} y1={0} x2={d.width} y2={0} vectorEffect="non-scaling-stroke" />
+                <path d={doorSwingPath(d.width, d.swing === "right")} strokeOpacity={0.5} vectorEffect="non-scaling-stroke" />
+              </g>
+            );
           })}
 
           {/* building edge — one closed perimeter poché wall, drawn last on top */}
@@ -293,8 +508,8 @@ function SceneScoreboard({ metrics }: { metrics: SceneMetrics }) {
   );
 }
 
-// The selected-zone panel — change room type, area + capacity vs the program target, and the Layouts
-// palette (settings that fit the zone footprint; picking one swaps the zone's plate).
+// The selected-zone panel — room type, open/enclosed, area + capacity vs the program target, and the
+// Layouts palette (settings that fit the zone footprint; picking one swaps the zone's plate).
 function ZonePanel({
   zone,
   scene,
@@ -302,6 +517,7 @@ function ZonePanel({
   settings,
   busy,
   onChangeType,
+  onSetEnclosed,
   onSwapPlate,
 }: {
   zone: SceneZone;
@@ -310,6 +526,7 @@ function ZonePanel({
   settings: CatalogSetting[] | null;
   busy: boolean;
   onChangeType: (type: string) => void;
+  onSetEnclosed: (enclosed: boolean) => void;
   onSwapPlate: (settingId: string) => void;
 }) {
   const placement = scene.placements.find((p) => p.zone_id === zone.id);
@@ -333,6 +550,18 @@ function ZonePanel({
             value={SCENE_ROOM_TYPES.some((t) => t.value === zone.room_type) ? zone.room_type : "open"}
             onChange={onChangeType}
             options={SCENE_ROOM_TYPES}
+          />
+        </label>
+        <label className="brief-field" style={{ marginTop: 12 }}>
+          <span className="brief-label">Enclosure</span>
+          <Segmented
+            label="Enclosure"
+            value={zone.enclosed ? "enclosed" : "open"}
+            onChange={(v) => onSetEnclosed(v === "enclosed")}
+            options={[
+              { value: "open", label: "Open" },
+              { value: "enclosed", label: "Enclosed" },
+            ]}
           />
         </label>
         <div className="prop-recap" style={{ marginTop: 8 }}>
@@ -375,8 +604,40 @@ function ZonePanel({
   );
 }
 
+// The selected-door panel — flip the swing side + nudge the door along its host wall (±6″). Mirrors
+// the ZonePanel styling (swap-panel + prop-recap + export-btn actions).
+function DoorPanel({ door, onFlip, onNudge }: { door: SceneDoor; onFlip: () => void; onNudge: (delta: number) => void }) {
+  return (
+    <div className="swap-panel" role="group" aria-label="Door">
+      <div className="swap-head">
+        <Eyebrow>Door</Eyebrow>
+      </div>
+      <div className="room-props">
+        <div className="prop-recap">
+          <div className="prop-row"><span className="prop-k">Leaf</span><span className="prop-v">{num(door.width * 12)}″</span></div>
+          <div className="prop-row"><span className="prop-k">Offset</span><span className="prop-v">{num(door.offset)}′</span></div>
+          <div className="prop-row"><span className="prop-k">Swing</span><span className="prop-v">{door.swing}</span></div>
+        </div>
+        <Eyebrow style={{ display: "block", margin: "16px 0 8px" }}>Adjust</Eyebrow>
+      </div>
+      <button type="button" className="export-btn" onClick={onFlip}>
+        <span className="export-btn-label">Flip swing side</span>
+        <span className="export-btn-meta">mirror the arc</span>
+      </button>
+      <button type="button" className="export-btn" onClick={() => onNudge(-0.5)}>
+        <span className="export-btn-label">Nudge along wall</span>
+        <span className="export-btn-meta">−6″</span>
+      </button>
+      <button type="button" className="export-btn" onClick={() => onNudge(0.5)}>
+        <span className="export-btn-label">Nudge along wall</span>
+        <span className="export-btn-meta">+6″</span>
+      </button>
+    </div>
+  );
+}
+
 // The scene editor surface — qbiq Studio layout in our design system: the scene canvas on the left,
-// the right rail carrying Undo/Redo + the program scoreboard + the selected-zone panel + Layouts.
+// the right rail carrying Undo/Redo + Merge + the program scoreboard + the selection panel + Layouts.
 // Client-side undo/redo: a stack of {scene, metrics} snapshots; every apply pushes the new one.
 export default function SceneEditor({
   plan,
@@ -392,6 +653,10 @@ export default function SceneEditor({
   const [history, setHistory] = useState<SceneState[]>([]);
   const [index, setIndex] = useState(-1);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ItemSelection | null>(null);
+  const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [settings, setSettings] = useState<CatalogSetting[] | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -424,9 +689,15 @@ export default function SceneEditor({
   const undo = useCallback(() => setIndex((i) => (i > 0 ? i - 1 : i)), []);
   const redo = useCallback(() => setIndex((i) => (i < history.length - 1 ? i + 1 : i)), [history.length]);
 
-  // Cmd/Ctrl+Z undo · Shift+Cmd/Ctrl+Z redo.
+  const clearSelection = useCallback(() => {
+    setSelectedItem(null);
+    setSelectedDoorId(null);
+  }, []);
+
+  // Cmd/Ctrl+Z undo · Shift+Cmd/Ctrl+Z redo · Esc clears the current selection.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { clearSelection(); setSelectedZoneId(null); return; }
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       e.preventDefault();
       if (e.shiftKey) redo();
@@ -434,11 +705,15 @@ export default function SceneEditor({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  }, [undo, redo, clearSelection]);
 
   const selectedZone = useMemo(
     () => scene?.zones.find((z) => z.id === selectedZoneId) ?? null,
     [scene, selectedZoneId],
+  );
+  const selectedDoor = useMemo(
+    () => scene?.doors.find((d) => d.id === selectedDoorId) ?? null,
+    [scene, selectedDoorId],
   );
 
   // Layouts that fit the selected zone's footprint.
@@ -459,19 +734,21 @@ export default function SceneEditor({
     };
   }, [selectedZone]);
 
-  // Apply one command server-side; on success push the new snapshot (truncating any redo tail), on
-  // rejection surface the reason and keep the current snapshot.
+  // Apply one command server-side; on success push the new snapshot (truncating any redo tail) and
+  // return it, on rejection surface the reason, keep the current snapshot, and return null.
   const apply = useCallback(
-    async (command: SceneCommand) => {
-      if (!scene) return;
+    async (command: SceneCommand): Promise<SceneState | null> => {
+      if (!scene) return null;
       setBusy(true);
       setErr(null);
       try {
         const next = await applySceneCommand(scene, command);
         setHistory((h) => [...h.slice(0, index + 1), next]);
         setIndex((i) => i + 1);
+        return next;
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e));
+        return null;
       } finally {
         setBusy(false);
       }
@@ -482,9 +759,67 @@ export default function SceneEditor({
   const changeType = (type: string) => {
     if (selectedZoneId) apply({ type: "change_room_type", zone_id: selectedZoneId, new_type: type });
   };
+  const setEnclosed = (enclosed: boolean) => {
+    if (selectedZoneId) apply({ type: "set_open_enclosed", zone_id: selectedZoneId, enclosed });
+  };
   const swapPlate = (settingId: string) => {
     const placement = scene?.placements.find((p) => p.zone_id === selectedZoneId);
     if (placement) apply({ type: "swap_plate", placement_id: placement.id, plate_id: settingId });
+  };
+
+  const selectZone = (id: string) => {
+    clearSelection();
+    setSelectedZoneId(id);
+  };
+  const selectItem = (sel: ItemSelection) => {
+    setSelectedZoneId(null);
+    setSelectedDoorId(null);
+    setSelectedItem(sel);
+  };
+  const selectDoor = (id: string) => {
+    setSelectedZoneId(null);
+    setSelectedItem(null);
+    setSelectedDoorId(id);
+  };
+  const moveItem = (sel: ItemSelection, dx: number, dy: number) =>
+    apply({ type: "move_item", ...sel, dx, dy });
+  const rotateItem = (sel: ItemSelection, delta: number) =>
+    apply({ type: "rotate_item", ...sel, delta });
+  const deleteItem = (sel: ItemSelection) => {
+    setSelectedItem(null);
+    apply({ type: "delete_item", ...sel });
+  };
+  const flipDoor = () => {
+    if (selectedDoorId) apply({ type: "edit_door", door_id: selectedDoorId, flip_swing: true });
+  };
+  const nudgeDoor = (delta: number) => {
+    if (selectedDoor) apply({ type: "edit_door", door_id: selectedDoor.id, offset: selectedDoor.offset + delta });
+  };
+
+  const toggleMergeMode = () => {
+    clearSelection();
+    setSelectedZoneId(null);
+    setMergeSelection([]);
+    setMergeMode((on) => !on);
+  };
+  const toggleMergeZone = (id: string) => {
+    setMergeSelection((sel) =>
+      sel.includes(id)
+        ? sel.filter((z) => z !== id)
+        : sel.length < 2
+          ? [...sel, id]
+          : [sel[1], id],
+    );
+  };
+  const applyMerge = async () => {
+    if (mergeSelection.length !== 2) return;
+    const [a, b] = mergeSelection;
+    const next = await apply({ type: "merge_zones", a_id: a, b_id: b });
+    if (next) {
+      setMergeMode(false);
+      setMergeSelection([]);
+      setSelectedZoneId(a); // keep the merged zone selected so a plate can seat the bigger footprint
+    }
   };
 
   const exportDxf = async () => {
@@ -504,7 +839,21 @@ export default function SceneEditor({
     <main className="studio">
       <section className="stage">
         {scene ? (
-          <SceneCanvas scene={scene} selectedZoneId={selectedZoneId} onSelectZone={setSelectedZoneId} />
+          <SceneCanvas
+            scene={scene}
+            selectedZoneId={selectedZoneId}
+            onSelectZone={selectZone}
+            mergeMode={mergeMode}
+            mergeSelection={mergeSelection}
+            onToggleMergeZone={toggleMergeZone}
+            selectedItem={selectedItem}
+            onSelectItem={selectItem}
+            onMoveItem={moveItem}
+            onRotateItem={rotateItem}
+            onDeleteItem={deleteItem}
+            selectedDoorId={selectedDoorId}
+            onSelectDoor={selectDoor}
+          />
         ) : (
           <div className="empty">
             <div className="glyph">◳</div>
@@ -517,6 +866,7 @@ export default function SceneEditor({
         <div className="scene-toolbar">
           <button type="button" className="link-btn" onClick={onExit}>← Done</button>
           <div className="scene-toolbar-actions">
+            <button type="button" className={`link-btn${mergeMode ? " is-on" : ""}`} aria-pressed={mergeMode} onClick={toggleMergeMode}>⇔ Merge</button>
             <button type="button" className="link-btn" onClick={undo} disabled={!canUndo} aria-label="Undo">↶ Undo</button>
             <button type="button" className="link-btn" onClick={redo} disabled={!canRedo} aria-label="Redo">↷ Redo</button>
           </div>
@@ -526,21 +876,47 @@ export default function SceneEditor({
 
         {metrics && <SceneScoreboard metrics={metrics} />}
 
-        {scene && metrics && selectedZone ? (
+        {scene && (
           <>
             <hr className="ds-rule" />
-            <ZonePanel
-              zone={selectedZone}
-              scene={scene}
-              metrics={metrics}
-              settings={settings}
-              busy={settingsBusy}
-              onChangeType={changeType}
-              onSwapPlate={swapPlate}
-            />
+            {mergeMode ? (
+              <div className="merge-rooms">
+                <div className="swap-head">
+                  <Eyebrow>Merge zones</Eyebrow>
+                  <button type="button" className="link-btn is-on" aria-pressed onClick={toggleMergeMode}>Cancel</button>
+                </div>
+                <p className="disclaim" style={{ marginBottom: 10 }}>
+                  Pick two adjacent zones on the plan, then merge them into one larger space.
+                </p>
+                <button
+                  type="button"
+                  className="export-btn export-btn--primary"
+                  disabled={mergeSelection.length !== 2 || busy}
+                  onClick={applyMerge}
+                >
+                  <span className="export-btn-label">{busy ? "Merging…" : "Merge these two"}</span>
+                  <span className="export-btn-meta">{mergeSelection.length} of 2 picked</span>
+                </button>
+              </div>
+            ) : selectedItem ? (
+              <Callout quiet>Drag to move, use the grip to rotate, and Delete (or the ✕) to remove this piece. Esc deselects.</Callout>
+            ) : selectedDoor ? (
+              <DoorPanel door={selectedDoor} onFlip={flipDoor} onNudge={nudgeDoor} />
+            ) : metrics && selectedZone ? (
+              <ZonePanel
+                zone={selectedZone}
+                scene={scene}
+                metrics={metrics}
+                settings={settings}
+                busy={settingsBusy}
+                onChangeType={changeType}
+                onSetEnclosed={setEnclosed}
+                onSwapPlate={swapPlate}
+              />
+            ) : (
+              <Callout quiet>Select a zone, a piece, or a door on the plan to edit it — or use Merge to combine two zones.</Callout>
+            )}
           </>
-        ) : (
-          scene && <Callout quiet>Select a zone on the plan to change its room type or swap its layout.</Callout>
         )}
 
         <hr className="ds-rule" />

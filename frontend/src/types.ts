@@ -468,7 +468,13 @@ export interface SceneMetrics {
 // (a library setting id), resolved to real geometry server-side.
 export type SceneCommand =
   | { type: "change_room_type"; zone_id: string; new_type: string }
-  | { type: "swap_plate"; placement_id: string; plate_id: string };
+  | { type: "swap_plate"; placement_id: string; plate_id: string }
+  | { type: "set_open_enclosed"; zone_id: string; enclosed: boolean; plate_id?: string }
+  | { type: "merge_zones"; a_id: string; b_id: string; merged_plate_id?: string }
+  | { type: "move_item"; placement_id: string; item_ref: number; dx: number; dy: number }
+  | { type: "rotate_item"; placement_id: string; item_ref: number; delta: number }
+  | { type: "delete_item"; placement_id: string; item_ref: number }
+  | { type: "edit_door"; door_id: string; flip_swing?: boolean; offset?: number };
 
 export interface SceneState {
   scene: Scene;
