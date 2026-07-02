@@ -195,6 +195,21 @@ const ROOM_FAMILY: Record<string, string> = {
   amenity: "Amenities",
 };
 
+// Aggregate a detailed program into the scene adapter's target keys (the scene scoreboard reads
+// target_offices/target_meetings/target_collaboration). Offices→offices; Conference+Team→meetings;
+// Collaboration→collaboration; Amenities aren't a scene-zone target. Without this the scene targets
+// default to 0 and every room reads as over-target.
+function sceneProgramTargets(program: DetailedProgram): Record<string, number> {
+  const t = { target_offices: 0, target_meetings: 0, target_collaboration: 0 };
+  for (const r of program.rooms) {
+    const fam = ROOM_FAMILY[r.type];
+    if (fam === "Offices") t.target_offices += r.count;
+    else if (fam === "Conference" || fam === "Team rooms") t.target_meetings += r.count;
+    else if (fam === "Collaboration") t.target_collaboration += r.count;
+  }
+  return t;
+}
+
 const PLACEMENTS: { value: Placement; label: string }[] = [
   { value: "window", label: "Window" },
   { value: "core", label: "Core" },
@@ -1425,7 +1440,7 @@ export default function Studio({
       <SceneEditor
         plan={versions.plan}
         testfit={selected.testfit}
-        program={genMode === "detailed" ? detailed : undefined}
+        program={genMode === "detailed" ? sceneProgramTargets(detailed) : undefined}
         onExit={() => setSceneEditing(false)}
       />
     );
