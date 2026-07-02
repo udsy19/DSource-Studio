@@ -1085,14 +1085,6 @@ export default function Studio({
           <span className="render-dismiss-hint">Click or press Esc to dismiss</span>
         </div>
       )}
-      {showPlanFiles && (
-        <PlanFilesModal
-          deliverables={deliverables}
-          exporting={exporting}
-          onRun={runExport}
-          onClose={() => setShowPlanFiles(false)}
-        />
-      )}
     </>
   );
 
@@ -1669,6 +1661,16 @@ export default function Studio({
           )}
         </div>
       </aside>
+      {/* Stage-independent: openable from the versions list (fitStage) AND the adopted editor
+          (layoutStage), so the modal must live outside stageBody. */}
+      {showPlanFiles && (
+        <PlanFilesModal
+          deliverables={deliverables}
+          exporting={exporting}
+          onRun={runExport}
+          onClose={() => setShowPlanFiles(false)}
+        />
+      )}
     </main>
   );
 }
