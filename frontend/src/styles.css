@@ -532,6 +532,26 @@ header.bar {
 .export-btn.is-danger:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 .export-btn.is-danger .export-btn-label { color: var(--accent); }
 
+/* active-version selector — switch which A/B/C option the version exports target */
+.version-select { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.version-select-input {
+  width: 100%; padding: 10px 12px; background: var(--paper); color: var(--ink);
+  border: 1px solid var(--line-2); border-radius: var(--r1);
+  font: 500 13px/1 var(--sans); cursor: pointer;
+}
+.version-select-input:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+
+/* plan files — a focus-trapped modal listing every downloadable file for the active design */
+.modal-scrim {
+  position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  background: rgba(26, 24, 19, 0.42); backdrop-filter: blur(3px); animation: fade 0.25s ease both; padding: 24px;
+}
+.plan-files-modal {
+  display: flex; flex-direction: column; gap: 10px; width: min(420px, 92vw); max-height: 84vh; overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: 18px 20px; box-shadow: var(--shadow-2);
+}
+
 /* editable canvas — a movable piece invites the drag; the active drag shows the grabbing cursor */
 .layout-furn.is-movable { cursor: grab; }
 .layout-furn.is-movable:active { cursor: grabbing; }

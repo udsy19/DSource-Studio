@@ -166,6 +166,26 @@ export async function downloadTakeoffFromLayout(
   );
 }
 
+// Program summary spreadsheet — rooms grouped by family, counts + measured areas — from a layout.
+export async function downloadProgramSummary(
+  layout: import("./types").ExtractedLayout,
+): Promise<void> {
+  await downloadBlob(
+    await fetch("/api/layout/program-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(layout),
+    }),
+    "program-summary.xlsx",
+  );
+}
+
+// Save a render (a data-URL) to disk as an image file — a client-side download, no backend round-trip.
+export async function downloadRenderImage(dataUrl: string): Promise<void> {
+  const ext = dataUrl.startsWith("data:image/png") ? "png" : "jpg";
+  await downloadBlob(await fetch(dataUrl), `render.${ext}`);
+}
+
 export interface BomLine {
   brand: string;
   model: string;
@@ -280,6 +300,8 @@ export async function downloadReport(reportData: {
   project: import("./types").ReportProject;
   plan: import("./types").Plan;
   alternatives: import("./types").Alternative[];
+  render_image?: string | null; // the photoreal render (data-URL), when one exists
+  qr_url?: string | null; // honest link the cover QR points to (this project in DSource)
 }): Promise<void> {
   await downloadBlob(
     await fetch("/api/testfit/report", {

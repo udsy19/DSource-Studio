@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   downloadDxfFromFit,
   downloadIfcFromFit,
+  downloadProgramSummary,
+  downloadRenderImage,
   downloadReport,
   downloadTakeoffFromFit,
   downloadTakeoffFromLayout,
@@ -371,6 +373,10 @@ function recountInventory(
   return inv;
 }
 
+// One downloadable deliverable for the review step — rendered both inline and in the Plan Files
+// modal from a single list, so the two surfaces never drift.
+type Deliverable = { kind: string; label: string; meta: string; run: () => Promise<void>; primary?: boolean };
+
 export default function Studio({
   project,
   onStatus,
@@ -426,6 +432,7 @@ export default function Studio({
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<"plan" | "space">("plan");
   const [exporting, setExporting] = useState<string | null>(null);
+  const [showPlanFiles, setShowPlanFiles] = useState(false);
   const [bom, setBom] = useState<Bom | null>(null);
 
   // Swap state — the selected furniture item OR room, and the fetched alternatives for it.
@@ -1001,6 +1008,37 @@ export default function Studio({
   const nextStep = stepIdx < STEP_ORDER.length - 1 ? STEP_ORDER[stepIdx + 1] : null;
   const reviewAdopted = step === "review" && !!adoptedFit;
 
+  // The review-step deliverables for the active context (adopted editor vs the generated versions).
+  // The report carries the render (when one exists) and an honest QR back to this project.
+  const deliverables = useMemo<Deliverable[]>(() => {
+    const qrUrl = window.location.href;
+    const reportProject = { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" };
+    const png: Deliverable[] = renderResult
+      ? [{ kind: "png", label: "Rendered photo", meta: "PNG", run: () => downloadRenderImage(renderResult) }]
+      : [];
+    if (reviewAdopted && adoptedFit && layout) {
+      return [
+        { kind: "takeoff", label: "Quantity takeoff", meta: "Excel · 9 sheets", primary: true, run: () => downloadTakeoffFromLayout(layout) },
+        { kind: "report", label: "Space-planning report", meta: "PDF", run: () => downloadReport({ project: reportProject, plan: adoptedFit.plan, alternatives: [adoptedFit.alternative], render_image: renderResult, qr_url: qrUrl }) },
+        { kind: "program", label: "Program summary", meta: "Excel · by family", run: () => downloadProgramSummary(layout) },
+        { kind: "ifc", label: "BIM model", meta: "IFC", run: () => downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }) },
+        { kind: "dxf", label: "CAD drawing", meta: "DXF", run: () => downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }) },
+        ...png,
+      ];
+    }
+    if (versions && selected) {
+      return [
+        { kind: "report", label: "Space-planning report", meta: "PDF · 3 options", primary: true, run: () => downloadReport({ project: reportProject, plan: versions.plan, alternatives: versions.alternatives, render_image: renderResult, qr_url: qrUrl }) },
+        { kind: "takeoff", label: "Quantity takeoff", meta: "Excel · BOM", run: () => downloadTakeoffFromFit({ plan: versions.plan, testfit: selected.testfit }) },
+        { kind: "program", label: "Program summary", meta: "Excel · by family", run: () => downloadProgramSummary(layoutFromFit(versions.plan, selected.testfit.instances)) },
+        { kind: "ifc", label: "BIM model", meta: "IFC", run: () => downloadIfcFromFit({ plan: versions.plan, testfit: selected.testfit }) },
+        { kind: "dxf", label: "CAD drawing", meta: "DXF", run: () => downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }) },
+        ...png,
+      ];
+    }
+    return [];
+  }, [reviewAdopted, adoptedFit, layout, versions, selected, renderResult, project, building]);
+
   const viewToggle = (
     <div className="stage-tools">
       <Segmented
@@ -1046,6 +1084,14 @@ export default function Studio({
           <img className="render-result" src={renderResult} alt="Photoreal render of the layout" />
           <span className="render-dismiss-hint">Click or press Esc to dismiss</span>
         </div>
+      )}
+      {showPlanFiles && (
+        <PlanFilesModal
+          deliverables={deliverables}
+          exporting={exporting}
+          onRun={runExport}
+          onClose={() => setShowPlanFiles(false)}
+        />
       )}
     </>
   );
@@ -1537,28 +1583,10 @@ export default function Studio({
               <hr className="ds-rule" />
               <div className="exports">
                 <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · deliverables</Eyebrow>
-                <div className="export-actions">
-                  <button className="export-btn export-btn--primary" onClick={() => runExport("takeoff", () => downloadTakeoffFromLayout(layout!))} disabled={!!exporting}>
-                    <span className="export-btn-label">Quantity takeoff</span>
-                    <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · 9 sheets"}</span>
-                  </button>
-                  {adoptedFit && (
-                    <>
-                      <button className="export-btn" onClick={() => runExport("report", () => downloadReport({ project: { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" }, plan: adoptedFit.plan, alternatives: [adoptedFit.alternative] }))} disabled={!!exporting}>
-                        <span className="export-btn-label">Space-planning report</span>
-                        <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF"}</span>
-                      </button>
-                      <button className="export-btn" onClick={() => runExport("ifc", () => downloadIfcFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }))} disabled={!!exporting}>
-                        <span className="export-btn-label">BIM model</span>
-                        <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
-                      </button>
-                      <button className="export-btn" onClick={() => runExport("dxf", () => downloadDxfFromFit({ plan: adoptedFit.plan, testfit: adoptedFit.alternative.testfit }))} disabled={!!exporting}>
-                        <span className="export-btn-label">CAD drawing</span>
-                        <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
-                      </button>
-                    </>
-                  )}
-                </div>
+                <ExportButtons deliverables={deliverables} exporting={exporting} onRun={runExport} />
+                <button type="button" className="link-btn" style={{ marginTop: 12 }} onClick={() => setShowPlanFiles(true)}>
+                  Plan files…
+                </button>
               </div>
             </>
           ) : (
@@ -1601,26 +1629,27 @@ export default function Studio({
                   <hr className="ds-rule" />
                   <div className="exports">
                     <Eyebrow style={{ display: "block", marginBottom: 14 }}>Export · version {selected.id}</Eyebrow>
-                    <div className="export-actions">
-                      <button className="export-btn export-btn--primary" onClick={() => runExport("report", () => downloadReport({ project: { client: project?.address ?? "", building, style: "Modern", floor: project?.floor ?? "" }, plan: versions.plan, alternatives: versions.alternatives }))} disabled={!!exporting}>
-                        <span className="export-btn-label">Space-planning report</span>
-                        <span className="export-btn-meta">{exporting === "report" ? "Preparing…" : "PDF · 3 options"}</span>
-                      </button>
-                      <button className="export-btn" onClick={() => runExport("takeoff", () => downloadTakeoffFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
-                        <span className="export-btn-label">Quantity takeoff</span>
-                        <span className="export-btn-meta">{exporting === "takeoff" ? "Preparing…" : "Excel · BOM"}</span>
-                      </button>
-                      <button className="export-btn" onClick={() => runExport("ifc", () => downloadIfcFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
-                        <span className="export-btn-label">BIM model</span>
-                        <span className="export-btn-meta">{exporting === "ifc" ? "Preparing…" : "IFC"}</span>
-                      </button>
-                      <button className="export-btn" onClick={() => runExport("dxf", () => downloadDxfFromFit({ plan: versions.plan, testfit: selected.testfit }))} disabled={!!exporting}>
-                        <span className="export-btn-label">CAD drawing</span>
-                        <span className="export-btn-meta">{exporting === "dxf" ? "Preparing…" : "DXF"}</span>
-                      </button>
-                    </div>
+                    <label className="version-select">
+                      <span className="brief-label">Active version</span>
+                      <select
+                        className="version-select-input"
+                        value={selectedId ?? ""}
+                        onChange={(e) => setSelectedId(e.target.value)}
+                        aria-label="Active version for export"
+                      >
+                        {versions.alternatives.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            Option {a.id} · {num(a.metrics.seats)} seats
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <ExportButtons deliverables={deliverables} exporting={exporting} onRun={runExport} />
+                    <button type="button" className="link-btn" style={{ marginTop: 12 }} onClick={() => setShowPlanFiles(true)}>
+                      Plan files…
+                    </button>
                     <p className="disclaim" style={{ marginTop: 12 }}>
-                      Report compares all three versions; takeoff, BIM &amp; CAD export the selected one.
+                      Report compares all three versions; takeoff, program, BIM &amp; CAD export the selected one.
                     </p>
                   </div>
                 </>
@@ -2200,6 +2229,106 @@ function GenerateButton({
     >
       {busy ? "Generating…" : hasVersions ? "Regenerate versions" : "Generate versions"}
     </button>
+  );
+}
+
+// The deliverables as a list of export buttons — the single renderer used by the review-step
+// exports block and the Plan Files modal, so both surfaces always offer the same set.
+function ExportButtons({
+  deliverables,
+  exporting,
+  onRun,
+}: {
+  deliverables: Deliverable[];
+  exporting: string | null;
+  onRun: (kind: string, run: () => Promise<void>) => void;
+}) {
+  return (
+    <div className="export-actions">
+      {deliverables.map((d) => (
+        <button
+          key={d.kind}
+          className={`export-btn${d.primary ? " export-btn--primary" : ""}`}
+          onClick={() => onRun(d.kind, d.run)}
+          disabled={!!exporting}
+        >
+          <span className="export-btn-label">{d.label}</span>
+          <span className="export-btn-meta">{exporting === d.kind ? "Preparing…" : d.meta}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Per-design "Plan files" modal — one place to grab every downloadable file for the active design.
+// Accessible: focus-trapped (Tab cycles inside), Esc closes, focus restored to the opener on close.
+function PlanFilesModal({
+  deliverables,
+  exporting,
+  onRun,
+  onClose,
+}: {
+  deliverables: Deliverable[];
+  exporting: string | null;
+  onRun: (kind: string, run: () => Promise<void>) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const node = ref.current;
+    const focusables = () =>
+      Array.from(node?.querySelectorAll<HTMLElement>("button, [href], select, [tabindex]:not([tabindex='-1'])") ?? [])
+        .filter((el) => !el.hasAttribute("disabled"));
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    node?.addEventListener("keydown", onKey);
+    return () => {
+      node?.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div
+        ref={ref}
+        className="plan-files-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Plan files"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="swap-head">
+          <Eyebrow>Plan files</Eyebrow>
+          <button type="button" className="link-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <p className="disclaim" style={{ marginBottom: 12 }}>
+          Every downloadable file for this design — reports, spreadsheets, models and drawings.
+        </p>
+        <ExportButtons deliverables={deliverables} exporting={exporting} onRun={onRun} />
+      </div>
+    </div>
   );
 }
 
